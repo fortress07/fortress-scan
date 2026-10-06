@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, List, Optional, Sequence, Set, Tuple, TypeVar
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar
 
 from ..analysis.base import AnalysisUnit
 from ..analysis.generic.analyzer import GenericAnalyzer
 from ..analysis.manifest import ManifestAnalyzer
-from ..analysis.python.analyzer import PythonAnalyzer, UnparsableSource
+from ..analysis.python.analyzer import CollectedModule, PythonAnalyzer, UnparsableSource
 from ..analysis.python.project import MAX_INDEX_FUNCTIONS, ProjectIndex
 from ..analysis.unicode_scan import UnicodeAnalyzer
 from ..analysis.workflow import WorkflowAnalyzer
@@ -39,6 +39,9 @@ _MAX_CROSS_FILE_FILES = 2000
 # Chỉ mục JS/TS/Java/Go chỉ giữ "sự thật" gọn của từng tệp ( hàm, import,
 # kiểu ) chứ không giữ AST, nên chịu được cây lớn hơn nhiều.
 _MAX_XFILE_FILES = 20000
+# Số vòng thu thập tối đa cho chỉ mục Python: mỗi vòng nối thêm một tầng gọi
+# xuyên tệp; vòng sau chỉ tính lại tệp bị ảnh hưởng nên phần lớn rất rẻ.
+_MAX_PROJECT_ROUNDS = 6
 
 _T = TypeVar("_T")
 
@@ -243,9 +246,8 @@ def _run(
 ) -> Tuple[List[_Outcome], List[ScanNotice]]:
     """Phân tích mọi tệp, dựng trước chỉ mục xuyên file cho phần Python.
 
-    Pha thu thập chạy hai vòng: vòng một tính summary từng tệp độc lập, vòng
-    hai tính lại với chỉ mục vòng một trong tay để hàm trung gian ghi nhận
-    được cả sink nằm ở tệp thứ ba. Sau đó mọi tệp mới vào pha báo cáo.
+    Pha thu thập lặp tới điểm dừng ( xem `_build_project` ), sau đó mọi tệp
+    mới vào pha báo cáo với chỉ mục cuối cùng trong tay.
     """
     notices: List[ScanNotice] = []
     python_files = [item for item in discovered if item.language == PYTHON]
@@ -268,6 +270,17 @@ def _run(
             )
         else:
             project = _build_project(python_files, config)
+            if not project.converged:
+                notices.append(
+                    ScanNotice(
+                        kind="cross-file-analysis-reduced",
+                        summary=(
+                            "summary xuyên file của Python chưa hội tụ sau %d vòng; "
+                            "chuỗi gọi rất dài có thể chưa được nối hết" % _MAX_PROJECT_ROUNDS
+                        ),
+                        details=("giới hạn số vòng bảo vệ thời gian của lượt quét",),
+                    )
+                )
             if project.full:
                 notices.append(
                     ScanNotice(
@@ -357,42 +370,54 @@ def _build_xproject(
 
 
 def _build_project(files: Sequence[DiscoveredFile], config: Config) -> ProjectIndex:
-    first = ProjectIndex()
-    _collect_into(first, files, config, None)
-    second = ProjectIndex()
-    _collect_into(second, files, config, first)
-    return second
+    """Lặp pha thu thập tới điểm dừng, mỗi vòng chỉ tính lại tệp bị ảnh hưởng.
 
-
-def _collect_into(
-    index: ProjectIndex,
-    files: Sequence[DiscoveredFile],
-    config: Config,
-    project: Optional[ProjectIndex],
-) -> None:
-    collected = _map_files(files, config, lambda item: _collect_one(item, config, project))
-    for item in collected:
-        if item is not None:
-            index.register(*item)
+    Vòng đầu chạy với chỉ mục rỗng. Sau mỗi vòng, chỉ mục được dựng lại từ
+    kết quả mới nhất của mọi tệp, rồi tệp nào có một câu hỏi ( hàm, lớp,
+    phương thức, thuộc tính ) mà câu trả lời đã khác thì mới phải tính lại.
+    Chuỗi `handler -> service -> repository -> lớp cha` qua bốn tệp cần bốn
+    vòng; những tệp không dính vào chuỗi đó chỉ được tính một lần.
+    """
+    index = ProjectIndex()
+    results: Dict[str, CollectedModule] = {}
+    pending: List[DiscoveredFile] = list(files)
+    rounds = 0
+    while pending and rounds < _MAX_PROJECT_ROUNDS:
+        rounds += 1
+        current = index
+        collected = _map_files(pending, config, lambda item: _collect_one(item, config, current))
+        for item, result in zip(pending, collected):
+            if result is None:
+                results.pop(item.relative, None)
+            else:
+                results[item.relative] = result
+        index = ProjectIndex()
+        for item in files:
+            result = results.get(item.relative)
+            if result is not None:
+                index.register(
+                    item.relative, result.functions, result.summaries, result.classes, result.aliases
+                )
+        pending = [
+            item
+            for item in files
+            if item.relative in results and not index.agrees(results[item.relative].answers)
+        ]
+    index.converged = not pending
+    return index
 
 
 def _collect_one(
     discovered: DiscoveredFile,
     config: Config,
     project: Optional[ProjectIndex],
-):
+) -> Optional[CollectedModule]:
     try:
         source, _ = read_source(discovered.path, discovered.language, discovered.identity)
     except (FileChangedDuringScan, OSError, MemoryError):
         return None
     budget = Budget(config.node_budget, config.file_timeout_seconds)
-    collected = _PYTHON_ANALYZER.collect_module(
-        source, discovered.relative, budget, project
-    )
-    if collected is None:
-        return None
-    functions, summaries = collected
-    return discovered.relative, functions, summaries
+    return _PYTHON_ANALYZER.collect_module(source, discovered.relative, budget, project)
 
 
 def _map_files(

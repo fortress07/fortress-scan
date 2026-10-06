@@ -1358,7 +1358,15 @@ SPECS: Dict[str, LanguageSpec] = {
         sanitizers={
             "strconv.Atoi": _ALL_CATEGORIES,
             "strconv.ParseInt": _ALL_CATEGORIES,
+            "strconv.ParseUint": _ALL_CATEGORIES,
             "strconv.ParseFloat": _ALL_CATEGORIES,
+            "strconv.ParseBool": _ALL_CATEGORIES,
+            # Định dạng một số / bool thành chuỗi: chỉ còn chữ số, dấu và chữ e.
+            "strconv.Itoa": _ALL_CATEGORIES,
+            "strconv.FormatInt": _ALL_CATEGORIES,
+            "strconv.FormatUint": _ALL_CATEGORIES,
+            "strconv.FormatFloat": _ALL_CATEGORIES,
+            "strconv.FormatBool": _ALL_CATEGORIES,
             "html.EscapeString": _HTML_ONLY,
             # url.QueryEscape mã hoá cả dấu nháy đơn.
             "url.QueryEscape": _ALL_CATEGORIES,

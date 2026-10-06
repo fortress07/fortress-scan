@@ -1617,6 +1617,8 @@ class _Analysis:
             return
         if self.context is not None and self._is_constant_expression(tokens):
             return
+        if self.context is not None and self._scalar_only(tokens, target):
+            return
         self.builder.add(
             rule_id=dynamic_rule,
             line=target.line,
@@ -1766,6 +1768,33 @@ class _Analysis:
         if not chains:
             return False
         return all(chain in self.sanitized for chain in chains)
+
+    def _scalar_only(self, tokens: Sequence[Token], anchor: Token) -> bool:
+        """Mọi giá trị không hằng trong biểu thức đều có kiểu số ( Java/Go ).
+
+            db.QueryRow("SELECT ... WHERE id = " + fmt.Sprint(id))   // id int
+        """
+        context = self.context
+        if context is None or self.spec.language not in _TYPED_LANGUAGES:
+            return False
+        seen = False
+        index = 0
+        limit = len(tokens)
+        while index < limit:
+            chain, next_index = _read_chain(tokens, index, self.spec)
+            if chain is None:
+                index += 1
+                continue
+            calls = next_index < limit and tokens[next_index].kind == OP and tokens[next_index].text == "("
+            if calls:
+                if chain not in _NUMBER_FORMATTERS:
+                    return False
+            elif chain not in self.sanitized:
+                if not _scalar_type(context.local_type(chain, anchor), self.spec.language):
+                    return False
+                seen = True
+            index = max(next_index, index + 1)
+        return seen
 
     def _chains(self, tokens: Sequence[Token]) -> List[str]:
         found: List[str] = []
@@ -2132,6 +2161,10 @@ def _alias_target(right: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
     return wrapped
 
 
+# Hàm chỉ đổi giá trị sang chuỗi: đối số là số thì kết quả cũng chỉ là số.
+_NUMBER_FORMATTERS = frozenset(
+    {"fmt.Sprint", "fmt.Sprintf", "String.valueOf", "Integer.toString", "Long.toString", "Objects.toString", "strconv.Itoa"}
+)
 _EXIT_KEYWORDS = ("throw", "return", "continue", "break", "abort", "panic")
 _MEMBERSHIP_METHODS = frozenset({"contains", "includes", "has", "containsKey", "Contains", "ContainsKey"})
 _LITERAL_COLLECTIONS = frozenset(

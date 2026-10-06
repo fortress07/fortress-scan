@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 from ...core.budget import Budget, BudgetExceeded
@@ -12,7 +12,7 @@ from ...languages import PYTHON
 from ...security.text import neutralize
 from ..base import Analyzer, AnalysisUnit, FindingBuilder
 from . import specs
-from .imports import ImportResolver, attribute_parts, dotted_name
+from .imports import ImportResolver, attribute_parts, dotted_name, module_names, package_of
 from .taint import (
     CONSTANT,
     MAX_ENTRIES,
@@ -40,6 +40,8 @@ SUMMARY_MODE = "summary"
 REPORT_MODE = "report"
 
 _MAX_SUMMARY_ROUNDS = 4
+# Chuỗi kế thừa / thuộc tính lồng nhau đi sâu tới đâu thì dừng.
+_MAX_CLASS_DEPTH = 8
 _MAX_LOOP_ITERATIONS = 2
 _MAX_BLOCK_DEPTH = 48
 _SELF_NAMES = frozenset({"self", "cls", "mcs"})
@@ -88,6 +90,46 @@ class ReturnEffect:
 class Summary:
     returns: Dict[str, ReturnEffect] = field(default_factory=dict)
     sinks: FrozenSet[SinkHit] = frozenset()
+    # Hàm factory: lớp của đối tượng được trả về ( `return ItemService()` ).
+    instance: str = ""
+
+
+@dataclass
+class ClassInfo:
+    """Lớp khai báo trong tệp: lớp cha và kiểu đoán được của từng thuộc tính."""
+
+    qualname: str
+    key: str
+    bases: Tuple[str, ...] = ()
+    # thuộc tính -> tên lớp ( đã phân giải theo import của tệp ) của giá trị
+    # được gán: `self.repo = repo or ItemRepository()` -> ("app.db.ItemRepository",)
+    attributes: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ClassRecord:
+    """Lớp như chỉ mục dự án thấy nó: mọi tên đã quy về tên đầy đủ."""
+
+    qualname: str
+    bases: Tuple[str, ...]
+    attributes: Tuple[Tuple[str, Tuple[str, ...]], ...]
+    # Phương thức khai báo ngay trong lớp, kể cả phương thức vô hại: lớp con
+    # ghi đè `run` bằng bản an toàn thì không được lấy `run` của lớp cha.
+    methods: FrozenSet[str]
+
+
+@dataclass
+class CollectedModule:
+    """Kết quả pha thu thập của một tệp, đủ để đăng ký và để biết khi nào phải tính lại."""
+
+    functions: Dict[str, "FunctionInfo"]
+    summaries: Dict[str, "Summary"]
+    classes: Tuple[ClassRecord, ...]
+    aliases: Dict[str, str]
+    # Mọi câu đã hỏi chỉ mục dự án cùng câu trả lời nhận được. Phân tích là
+    # tất định theo mã nguồn và các câu trả lời này, nên vòng sau chỉ cần
+    # tính lại tệp nào có ít nhất một câu trả lời đổi khác.
+    answers: Dict[Tuple[str, ...], object]
 
 
 @dataclass
@@ -147,8 +189,8 @@ class PythonAnalyzer(Analyzer):
         relative_path: str,
         budget: Budget,
         project: Optional["ProjectIndex"] = None,
-    ) -> Optional[Tuple[Dict[str, FunctionInfo], Dict[str, Summary]]]:
-        """Chỉ chạy pha thu thập: hàm và summary, không báo cáo gì.
+    ) -> Optional[CollectedModule]:
+        """Chỉ chạy pha thu thập: hàm, lớp và summary, không báo cáo gì.
 
         Trả về None nếu mã không parse được -- pha báo cáo sẽ tự ghi lỗi
         parse cho tệp này, pha thu thập không cần nói lại.
@@ -165,7 +207,24 @@ class PythonAnalyzer(Analyzer):
         )
         module = ModuleAnalysis(unit, budget, project)
         module.collect(tree)
-        return module.functions, module.summaries
+        # Bỏ nút AST: kết quả của mọi tệp được giữ qua nhiều vòng, cây cú pháp
+        # của cả dự án thì không cần nằm trong bộ nhớ cùng lúc.
+        functions = {
+            qualname: FunctionInfo(
+                node=None,
+                qualname=qualname,
+                simple_name=info.simple_name,
+                parameters=info.parameters,
+            )
+            for qualname, info in module.functions.items()
+        }
+        return CollectedModule(
+            functions=functions,
+            summaries=dict(module.summaries),
+            classes=module.class_records(),
+            aliases=module.imports.aliases(),
+            answers=module.answers,
+        )
 
 
 class ModuleAnalysis:
@@ -178,8 +237,13 @@ class ModuleAnalysis:
         self.unit = unit
         self.budget = budget
         self.builder = FindingBuilder(unit)
-        self.imports = ImportResolver()
         self.project = project
+        names = module_names(unit.relative_path)
+        # Tên module dài nhất, làm tiền tố cho tên đầy đủ của lớp trong tệp.
+        self.module_name = names[0] if names else ""
+        self.imports = ImportResolver(package_of(unit.relative_path))
+        self.classes: Dict[str, ClassInfo] = {}
+        self._classes_by_key: Dict[str, ClassInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
         self.functions_by_name: Dict[str, List[FunctionInfo]] = {}
         self.summaries: Dict[str, Summary] = {}
@@ -190,6 +254,7 @@ class ModuleAnalysis:
         self.enum_classes: Set[str] = set()
         self._name_values: Dict[str, Value] = {}
         self._attribute_refs: Dict[str, FrozenSet[CallableRef]] = {}
+        self.answers: Dict[Tuple[str, ...], object] = {}
 
     def name_value(self, qualname: str) -> Value:
         """Bare names repeat constantly; hand out one shared immutable value."""
@@ -281,6 +346,18 @@ class ModuleAnalysis:
                     if self._is_enum_class(child):
                         self.enum_classes.add(qualname)
                         self.enum_classes.add(child.name)
+                    key = "%s.%s" % (self.module_name, qualname) if self.module_name else qualname
+                    bases = tuple(
+                        name for name in (self.imports.qualname_of(base) for base in child.bases) if name
+                    )
+                    info = ClassInfo(
+                        qualname=qualname,
+                        key=key,
+                        bases=bases,
+                        attributes=_attribute_types(child, self.imports),
+                    )
+                    self.classes[qualname] = info
+                    self._classes_by_key[key] = info
                     stack.append((child, qualname))
 
     def _is_enum_class(self, node: ast.ClassDef) -> bool:
@@ -310,6 +387,7 @@ class ModuleAnalysis:
                 summary = Summary(
                     returns=dict(evaluator.returned_parameters),
                     sinks=frozenset(evaluator.recorded_sinks),
+                    instance=evaluator.returned_instance,
                 )
                 if summary != self.summaries.get(qualname):
                     self.summaries[qualname] = summary
@@ -323,6 +401,99 @@ class ModuleAnalysis:
         for info in self.functions.values():
             worker = Evaluator(self, info, REPORT_MODE, globals_env)
             worker.execute_function(synthetic=False)
+
+    # ------------------------------------------------------------ classes
+    def _ask(self, query: Tuple[str, ...]):
+        """Hỏi chỉ mục dự án và ghi lại câu trả lời ( xem CollectedModule.answers )."""
+        if self.project is None:
+            return None
+        answer = self.project.ask(query)
+        self.answers[query] = answer
+        return answer
+
+    def class_key(self, dotted: Optional[str]) -> str:
+        """Tên đầy đủ của lớp mà `dotted` ( đã qua import ) trỏ tới, hoặc ""."""
+        if not dotted:
+            return ""
+        local = self.classes.get(dotted)
+        if local is not None:
+            return local.key
+        return self._ask(("class", dotted)) or ""
+
+    def find_method(self, key: str, name: str, depth: int = 0) -> Optional[FunctionInfo]:
+        """Phương thức `name` của lớp `key`, tìm cả lên các lớp cha."""
+        if depth > _MAX_CLASS_DEPTH:
+            return None
+        local = self._classes_by_key.get(key)
+        if local is None:
+            return self._ask(("method", key, name))
+        info = self.functions.get("%s.%s" % (local.qualname, name))
+        if info is not None:
+            return info
+        for base in local.bases:
+            base_key = self.class_key(base)
+            if base_key and base_key != key:
+                found = self.find_method(base_key, name, depth + 1)
+                if found is not None:
+                    return found
+        return None
+
+    def attribute_type(self, key: str, attribute: str, depth: int = 0) -> str:
+        """Lớp của `obj.attribute` khi `obj` thuộc lớp `key`, hoặc ""."""
+        if depth > _MAX_CLASS_DEPTH:
+            return ""
+        local = self._classes_by_key.get(key)
+        if local is None:
+            return self._ask(("attribute", key, attribute)) or ""
+        for candidate in local.attributes.get(attribute, ()):
+            found = self.class_key(candidate) or self.instance_of(candidate)
+            if found:
+                return found
+        for base in local.bases:
+            base_key = self.class_key(base)
+            if base_key and base_key != key:
+                found = self.attribute_type(base_key, attribute, depth + 1)
+                if found:
+                    return found
+        return ""
+
+    def instance_of(self, dotted: str) -> str:
+        """Lớp của đối tượng mà hàm factory `dotted` trả về, hoặc ""."""
+        function = self.lookup_function(dotted)
+        if function is None:
+            return ""
+        summary = function.summary or self.summaries.get(function.qualname)
+        return summary.instance if summary is not None else ""
+
+    def class_records(self) -> Tuple[ClassRecord, ...]:
+        """Lớp của tệp cho chỉ mục dự án, tên lớp cha / kiểu thuộc tính đã quy về tên đầy đủ."""
+        prefix = self.module_name + "." if self.module_name else ""
+
+        def canonical(name: str) -> str:
+            local = self.classes.get(name)
+            if local is not None:
+                return local.key
+            if name in self.functions:
+                return prefix + name
+            return name
+
+        methods: Dict[str, Set[str]] = {}
+        for qualname in self.functions:
+            owner, _, simple = qualname.rpartition(".")
+            if owner in self.classes:
+                methods.setdefault(owner, set()).add(simple)
+        return tuple(
+            ClassRecord(
+                qualname=qualname,
+                bases=tuple(canonical(base) for base in info.bases),
+                attributes=tuple(
+                    (attribute, tuple(canonical(item) for item in items))
+                    for attribute, items in sorted(info.attributes.items())
+                ),
+                methods=frozenset(methods.get(qualname, ())),
+            )
+            for qualname, info in sorted(self.classes.items())
+        )
 
     def lookup_function(
         self, qualname: Optional[str], *, bare_name_call: bool = False
@@ -340,9 +511,7 @@ class ModuleAnalysis:
         # không qua attribute: `cp.read(...)` là lời gọi phương thức trên một
         # đối tượng vô danh, bắt nó về `def read(...)` của module khác là gán
         # nhầm nguồn gốc - và cái giá là cắt oan cả chuỗi taint thật.
-        if self.project is not None:
-            return self.project.lookup(qualname, allow_simple=bare_name_call)
-        return None
+        return self._ask(("function", qualname, "simple" if bare_name_call else ""))
 
 
 class Evaluator:
@@ -359,6 +528,7 @@ class Evaluator:
         self.globals_env = globals_env
         self.returned_parameters: Dict[str, ReturnEffect] = {}
         self.recorded_sinks: Set[SinkHit] = set()
+        self.returned_instance = ""
         self._depth = 0
 
     @property
@@ -380,6 +550,14 @@ class Evaluator:
             return
         node = info.node
         env: Environment = copy_environment(self.globals_env)
+        owner = self.module.classes.get(info.qualname.rpartition(".")[0])
+        if owner is not None and info.parameters and info.parameters[0] in _SELF_NAMES:
+            # `self` chỉ mang kiểu của lớp, để `self.repo.find(x)` và
+            # `self._where(x)` tìm được phương thức ở tệp khác. Nó KHÔNG được
+            # coi là tham số bẩn: bẩn cả đối tượng thì mọi thuộc tính hằng của
+            # nó cũng bẩn theo, và `Service(request.args["id"]).cleanup()` sẽ
+            # báo nhầm lệnh xóa thư mục tạm viết cứng trong lớp.
+            env[info.parameters[0]] = Value(instance=owner.key)
         for name in info.parameters:
             if name in _SELF_NAMES:
                 continue
@@ -453,7 +631,10 @@ class Evaluator:
             return env
         if isinstance(node, ast.Return):
             if node.value is not None:
-                self._record_return(self._eval(node.value, env))
+                returned = self._eval(node.value, env)
+                self._record_return(returned)
+                if returned.instance and not self.returned_instance:
+                    self.returned_instance = returned.instance
             return env
         if isinstance(node, ast.If):
             return self._execute_if(node, env)
@@ -684,7 +865,12 @@ class Evaluator:
             return combine(left, right)
         if isinstance(node, ast.BoolOp):
             values = [self._eval(item, env) for item in node.values]
-            return combine(*values) if values else CONSTANT
+            if not values:
+                return CONSTANT
+            combined = combine(*values)
+            # `repo or ItemRepository()`: giá trị ra là một trong các vế.
+            instance = next((item.instance for item in values if item.instance), "")
+            return replace(combined, instance=instance) if instance else combined
         if isinstance(node, ast.UnaryOp):
             return self._eval(node.operand, env)
         if isinstance(node, ast.Compare):
@@ -767,6 +953,7 @@ class Evaluator:
             text_parts=base.text_parts,
             sanitized=base.sanitized,
             callables=callables,
+            instance=self.module.attribute_type(base.instance, node.attr) if base.instance else "",
         )
 
     def _eval_subscript(self, node: ast.Subscript, env: Environment) -> Value:
@@ -937,10 +1124,16 @@ class Evaluator:
             if socket_source is not None:
                 return self._tainted(node, socket_source)
 
+        current = getattr(self.function, "node", None)
+        if isinstance(node.func, ast.Attribute) and receiver.instance:
+            method = self.module.find_method(receiver.instance, node.func.attr)
+            if method is not None and method.node is not current:
+                return self._apply_summary(method, node, argument_values, keyword_values, receiver)
+
         local = self.module.lookup_function(
             effective, bare_name_call=isinstance(node.func, ast.Name)
         )
-        if local is not None and local.node is not getattr(self.function, "node", None):
+        if local is not None and local.node is not current:
             return self._apply_summary(local, node, argument_values, keyword_values)
 
         if effective is not None and effective in specs.PROPAGATING_CALLS:
@@ -979,14 +1172,45 @@ class Evaluator:
         produced = (
             _reflected_callables(node, self.imports) if effective == "getattr" else frozenset()
         )
+        if effective == "super" and not node.args and not self._rebound("super", env):
+            # `super().save(x)`: tìm phương thức từ lớp cha của lớp đang đứng.
+            instance = self._parent_class()
+        else:
+            # Chỉ hỏi tên viết kiểu CapWords ( PEP 8 cho lớp ): hỏi chỉ mục cho
+            # mọi lời gọi `os.path.join(...)` chỉ tốn thời gian. Hàm factory
+            # viết thường vẫn trả về kiểu qua summary.instance ở _apply_summary.
+            instance = (
+                self.module.class_key(effective)
+                if effective and effective.rpartition(".")[2][:1].isupper()
+                else ""
+            )
+            if instance:
+                # `ReportService(request.form["dir"])`: __init__ có sink thì báo ở đây.
+                initializer = self.module.find_method(instance, "__init__")
+                if initializer is not None and initializer.node is not current:
+                    self._apply_summary(initializer, node, argument_values, keyword_values)
         if aggregate_taint is None:
-            return Value(constant=False, sanitized=sanitized, callables=produced)
+            return Value(constant=False, sanitized=sanitized, callables=produced, instance=instance)
         return Value(
             taint=aggregate_taint.downgraded(),
             constant=False,
             sanitized=sanitized,
             callables=produced,
+            instance=instance,
         )
+
+    def _parent_class(self) -> str:
+        """Lớp cha đầu tiên phân giải được của lớp chứa hàm đang xét, hoặc ""."""
+        if self.function is None:
+            return ""
+        owner = self.module.classes.get(self.function.qualname.rpartition(".")[0])
+        if owner is None:
+            return ""
+        for base in owner.bases:
+            key = self.module.class_key(base)
+            if key and key != owner.key:
+                return key
+        return ""
 
     def _rebound(self, path: str, env: Environment) -> bool:
         """Whether anything in scope has taken this dotted name over.
@@ -1046,12 +1270,15 @@ class Evaluator:
         node: ast.Call,
         argument_values: Sequence[Value],
         keyword_values: Dict[str, Value],
+        receiver: Optional[Value] = None,
     ) -> Value:
         if callee.summary is not None:
             summary = callee.summary
         else:
             summary = self.module.summaries.get(callee.qualname, Summary())
         bindings = _bind_arguments(callee.parameters, argument_values, keyword_values)
+        if receiver is not None and callee.parameters and callee.parameters[0] in _SELF_NAMES:
+            bindings[callee.parameters[0]] = receiver
         result_taint: Optional[Taint] = None
         sanitized = False
         for parameter, value in bindings.items():
@@ -1067,14 +1294,19 @@ class Evaluator:
             sanitized = sanitized or effect.sanitized or bool(effect.cleared)
             result_taint = merge_taint(result_taint, value.taint.cleared_for(effect.cleared))
         if result_taint is None:
-            return Value(constant=False, sanitized=sanitized)
+            return Value(constant=False, sanitized=sanitized, instance=summary.instance)
         step = self.builder.step(
             StepKind.CALL,
             node.lineno,
             node.col_offset,
             "giá trị trả về từ %s()" % callee.simple_name,
         )
-        return Value(taint=result_taint.with_step(step), constant=False, sanitized=sanitized)
+        return Value(
+            taint=result_taint.with_step(step),
+            constant=False,
+            sanitized=sanitized,
+            instance=summary.instance,
+        )
 
     def _record_return(self, value: Value) -> None:
         taint = value.taint
@@ -1914,3 +2146,108 @@ def _match_capture_names(pattern: ast.AST) -> List[str]:
         elif star is not None and isinstance(node, star) and node.name:
             names.append(node.name)
     return names
+
+
+def _attribute_types(node: ast.ClassDef, imports: ImportResolver) -> Dict[str, Tuple[str, ...]]:
+    """Kiểu đoán được của thuộc tính lớp, đọc từ phép gán trong thân lớp và phương thức.
+
+        class ItemService:
+            repo: ItemRepository                       # chú thích ở thân lớp
+            def __init__(self, repo=None, cache: Cache = None):
+                self.repo = repo or ItemRepository()   # lời gọi khởi tạo
+                self.cache = cache                     # chú thích của tham số
+    """
+    found: Dict[str, List[str]] = {}
+
+    def add(attribute: str, name: Optional[str]) -> None:
+        if not name:
+            return
+        bucket = found.setdefault(attribute, [])
+        if name not in bucket and len(bucket) < 4:
+            bucket.append(name)
+
+    def add_value(attribute: str, value: Optional[ast.expr], annotations: Dict[str, str]) -> None:
+        for call in _constructed_calls(value, 0):
+            add(attribute, imports.qualname_of(call.func))
+        if isinstance(value, ast.Name) and value.id in annotations:
+            add(attribute, annotations[value.id])
+
+    for statement in node.body:
+        if isinstance(statement, ast.Assign):
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    add_value(target.id, statement.value, {})
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            add(statement.target.id, imports.qualname_of(statement.annotation))
+            add_value(statement.target.id, statement.value, {})
+        elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            arguments = list(getattr(statement.args, "posonlyargs", []) or []) + list(statement.args.args)
+            if not arguments or arguments[0].arg not in _SELF_NAMES:
+                continue
+            receiver = arguments[0].arg
+            annotations = {
+                argument.arg: name
+                for argument in arguments[1:] + list(statement.args.kwonlyargs)
+                if argument.annotation is not None
+                for name in (imports.qualname_of(argument.annotation),)
+                if name
+            }
+            for inner in _nested_statements(statement.body, 0):
+                targets: List[ast.expr] = []
+                value: Optional[ast.expr] = None
+                if isinstance(inner, ast.Assign):
+                    targets, value = list(inner.targets), inner.value
+                elif isinstance(inner, ast.AnnAssign):
+                    targets, value = [inner.target], inner.value
+                for target in targets:
+                    if (
+                        isinstance(target, ast.Attribute)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == receiver
+                    ):
+                        if isinstance(inner, ast.AnnAssign):
+                            add(target.attr, imports.qualname_of(inner.annotation))
+                        add_value(target.attr, value, annotations)
+    return {attribute: tuple(names) for attribute, names in found.items()}
+
+
+_COMPOUND_FIELDS = ("body", "orelse", "finalbody", "handlers", "cases")
+
+
+def _nested_statements(statements: Sequence[ast.stmt], depth: int):
+    """Mọi câu lệnh trong khối, kể cả trong if/for/with/try, không đi vào biểu thức.
+
+    Rẻ hơn ast.walk nhiều lần trên phương thức dài: chỉ phép gán mới mang
+    kiểu của thuộc tính, nên không cần thăm từng nút con của biểu thức.
+    """
+    if depth > _MAX_BLOCK_DEPTH:
+        return
+    for statement in statements:
+        yield statement
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        for name in _COMPOUND_FIELDS:
+            inner = getattr(statement, name, None)
+            if not inner:
+                continue
+            for item in inner:
+                if isinstance(item, ast.stmt):
+                    yield from _nested_statements([item], depth + 1)
+                else:
+                    # except-handler và match-case bọc thân của chúng.
+                    yield from _nested_statements(getattr(item, "body", []), depth + 1)
+
+
+def _constructed_calls(value: Optional[ast.expr], depth: int) -> List[ast.Call]:
+    """Lời gọi có thể tạo ra giá trị: `A()`, `x or A()`, `A() if c else B()`, `await A()`."""
+    if value is None or depth > 4:
+        return []
+    if isinstance(value, ast.Call) and isinstance(value.func, (ast.Name, ast.Attribute)):
+        return [value]
+    if isinstance(value, ast.BoolOp):
+        return [call for item in value.values for call in _constructed_calls(item, depth + 1)]
+    if isinstance(value, ast.IfExp):
+        return _constructed_calls(value.body, depth + 1) + _constructed_calls(value.orelse, depth + 1)
+    if isinstance(value, ast.Await):
+        return _constructed_calls(value.value, depth + 1)
+    return []
