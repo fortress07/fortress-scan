@@ -31,6 +31,17 @@ from .project import JS_FAMILY, SUPPORTED, XProject
 MAX_ROUNDS = 5
 # Giữ token trong RAM giữa các vòng tới mức này; quá thì đọc và tách lại.
 _TOKEN_CACHE_LIMIT = 4_000_000
+# Một tệp nhiều hàm hơn mức này chỉ được tính summary ở vòng một.
+#
+# Mã người viết tay không tới mức đó: tệp lớn nhất của juice-shop có 32 hàm,
+# của OWASP BenchmarkJava có 35. Vượt hàng trăm là thư viện đi kèm hoặc bundle
+# sinh ra ( jquery.js 400, bootstrap.bundle.js 322 ), và lặp 5 vòng trên chúng
+# chiếm gần hết thời gian quét mà không đổi lấy phát hiện nào: lỗi của ứng
+# dụng nằm ở mã của ứng dụng, không nằm trong chuỗi gọi nội bộ của jQuery.
+# Lượt báo cáo vẫn đọc tệp đó như mọi tệp khác, và lời gọi từ ngoài vào nó vẫn
+# thấy summary vòng một; chỉ chuỗi gọi nhiều chặng ĐI XUYÊN QUA nó là không
+# được nối.
+_MAX_FIXPOINT_FUNCTIONS = 150
 
 _ANALYZER = GenericAnalyzer()
 
@@ -47,6 +58,8 @@ class BuildReport:
     rounds: int = 0
     converged: bool = True
     failed: List[str] = field(default_factory=list)
+    # Tệp chỉ được tính summary ở vòng một vì quá nhiều hàm.
+    shallow: List[str] = field(default_factory=list)
 
 
 def extract_facts(relative: str, language: str, tokens: List[Token]) -> FileFacts:
@@ -117,23 +130,31 @@ def build(
 
     project.finalize()
 
-    order = sorted(path for path, facts in project.facts.items() if any(f.name and not f.abstract for f in facts.functions))
+    concrete: Dict[str, List] = {}
+    for path, facts in project.facts.items():
+        functions = [f for f in facts.functions if f.name and not f.abstract]
+        if functions:
+            concrete[path] = functions
+    order = sorted(concrete)
+    report.shallow = sorted(
+        path for path, functions in concrete.items() if len(functions) > _MAX_FIXPOINT_FUNCTIONS
+    )
+    shallow = frozenset(report.shallow)
     for round_number in range(1, MAX_ROUNDS + 1):
         changed = False
         for path in order:
+            if round_number > 1 and path in shallow:
+                continue
             item = sources[path]
             tokens = tokens_of(item)
             if tokens is None:
                 continue
-            facts = project.facts[path]
             unit = AnalysisUnit(relative_path=path, language=item.language, source="", config=config)
             try:
                 declared = _declared(unit, tokens, Budget(config.token_budget, config.file_timeout_seconds))
             except BudgetExceeded:
                 continue
-            for function in facts.functions:
-                if not function.name or function.abstract:
-                    continue
+            for function in concrete[path]:
                 budget = Budget(config.token_budget, config.file_timeout_seconds)
                 summary = _ANALYZER.summarize(unit, tokens, function, project, budget, declared)
                 if project.set_summary(function, summary):

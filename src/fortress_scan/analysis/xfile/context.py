@@ -12,6 +12,7 @@ Một `FileContext` gắn với đúng một tệp và một chế độ:
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 from ...core.model import Category
@@ -22,6 +23,9 @@ from .project import QueueTaint, XProject
 REPORT = "report"
 SUMMARY = "summary"
 PROBE = "probe"
+
+# Khác None: "chưa tra" so với "đã tra, không có hàm nào bao".
+_MISSING = object()
 
 
 class FileContext:
@@ -41,11 +45,11 @@ class FileContext:
         self._tokens = tokens
         self.index = project.token_index(path, tokens)
         self._positions = self.index.positions
-        functions = self.facts.functions if self.facts is not None else []
-        self._spans: List[Tuple[int, int, FunctionDef]] = sorted(
-            ((f.body_start, f.body_end, f) for f in functions if not f.abstract),
-            key=lambda item: (item[0], -item[1]),
-        )
+        # Bảng thân hàm dùng chung cho mọi FileContext của cùng một tệp:
+        # `_reach[i]` là mút phải lớn nhất trong mọi hàm bắt đầu trước i, để
+        # lúc dò ngược biết khi nào không còn hàm nào bao được vị trí đang hỏi.
+        self._spans, self._starts, self._reach = project.function_spans(path)
+        self._enclosing: Dict[int, Optional[FunctionDef]] = {}
         self.extra_sources: Dict[str, str] = project.extra_sources(path)
         self._resolve_cache: Dict[Tuple[str, str, int], List[Callee]] = {}
         self._constant_cache: Dict[Tuple[str, str], Optional[Tuple[str, str]]] = {}
@@ -66,17 +70,31 @@ class FileContext:
         return self.mode == PROBE
 
     def function_at(self, token: Optional[Token]) -> Optional[FunctionDef]:
+        """Hàm trong cùng bao vị trí của token, hoặc hàm đang được tính summary.
+
+        Tệp JS thật có hàng nghìn hàm và hàng chục nghìn lời gọi, nên quét
+        thẳng danh sách hàm cho từng lời gọi là bậc hai: dò ngược từ hàm cuối
+        bắt đầu trước vị trí đó, dừng khi mọi hàm còn lại đều kết thúc trước
+        nó, rồi nhớ kết quả theo vị trí.
+        """
         if token is None:
             return self.function
         index = self._positions.get((token.line, token.column))
         if index is None:
             return self.function
-        found: Optional[FunctionDef] = None
-        for start, end, function in self._spans:
-            if start > index:
-                break
-            if start <= index < end:
-                found = function
+        found = self._enclosing.get(index, _MISSING)
+        if found is _MISSING:
+            found = None
+            cursor = bisect_right(self._starts, index) - 1
+            while cursor >= 0 and self._reach[cursor] > index:
+                start, end, function = self._spans[cursor]
+                if start <= index < end:
+                    # Danh sách xếp theo mút trái tăng, nên hàm gặp đầu tiên
+                    # khi dò ngược là hàm lồng trong cùng.
+                    found = function
+                    break
+                cursor -= 1
+            self._enclosing[index] = found
         return found or self.function
 
     def full_arguments(self, anchor: Token, chain: str) -> Optional[List[List[Token]]]:

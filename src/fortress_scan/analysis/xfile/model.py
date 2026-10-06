@@ -39,13 +39,32 @@ class FunctionDef:
     # Go: tên biến nhận của phương thức ( `func (s *Store) Find()` -> "s" ).
     receiver: str = ""
 
+    # `qualname` và `key` được đọc hàng chục triệu lần trong một lượt quét có
+    # tệp JS lớn ( mỗi lời gọi tra bảng theo khóa hàm ), nên tính một lần rồi
+    # giữ lại. Dataclass đóng băng chỉ chặn gán vào TRƯỜNG, và hai tên dưới
+    # đây không phải trường, nên băm và so sánh của nó không đổi.
     @property
     def qualname(self) -> str:
-        return "%s.%s" % (self.owner, self.name) if self.owner else self.name
+        cached = self.__dict__.get("_qualname")
+        if cached is None:
+            cached = "%s.%s" % (self.owner, self.name) if self.owner else self.name
+            object.__setattr__(self, "_qualname", cached)
+        return cached
 
     @property
     def key(self) -> str:
-        return "%s::%s@%d" % (self.path, self.qualname, self.line)
+        """Danh tính của hàm trong bảng summary và bảng kiểu biến cục bộ.
+
+        Mút trái của thân hàm nằm trong khóa vì dòng và tên KHÔNG đủ: tệp JS
+        rút gọn có hàng trăm hàm cùng tên trên cùng một dòng, nên khóa thiếu
+        nó làm các hàm đó ghi đè summary của nhau, vòng lặp tới điểm bất động
+        không bao giờ dừng, và kiểu biến của hàm này bị đọc cho hàm khác.
+        """
+        cached = self.__dict__.get("_key")
+        if cached is None:
+            cached = "%s::%s@%d#%d" % (self.path, self.qualname, self.line, self.body_start)
+            object.__setattr__(self, "_key", cached)
+        return cached
 
     @property
     def display(self) -> str:

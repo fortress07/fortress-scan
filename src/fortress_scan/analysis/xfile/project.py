@@ -29,6 +29,8 @@ SUPPORTED = frozenset({JAVASCRIPT, TYPESCRIPT, JAVA, GO})
 _JS_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte")
 _MAX_DEPTH = 8
 _MAX_FIELD_TYPES = 8
+# Số tệp giữ bảng tra cùng lúc: chặn trên cho bộ nhớ, không cho tính đúng.
+_MAX_LOOKUP_FILES = 256
 MAX_FUNCTIONS = 60_000
 
 # Chuỗi nguồn suy ra từ đối tượng request do framework truyền vào, theo kiểu.
@@ -198,6 +200,11 @@ class XProject:
         self._token_indexes: Dict[str, TokenIndex] = {}
         # JS: lớp -> những nơi `new` nó, dựng một lần khi cần.
         self._constructed: Optional[Dict[Tuple[str, str], List[Tuple[FileFacts, int, Tuple[str, ...]]]]] = None
+        # Tra hàm theo tên trong một tệp: dựng một lần cho mỗi tệp thay vì
+        # quét cả danh sách hàm cho từng lời gọi ( tệp JS lớn có hàng nghìn
+        # hàm và hàng chục nghìn lời gọi, quét thẳng là bậc hai ).
+        self._lookup_cache: Dict[str, Tuple[Dict[str, List[FunctionDef]], Dict[str, List[FunctionDef]], Dict[int, FunctionDef]]] = {}
+        self._span_cache: Dict[str, Tuple[List[Tuple[int, int, FunctionDef]], List[int], List[int]]] = {}
 
     # ------------------------------------------------------------ building
     def add_file(self, facts: FileFacts) -> None:
@@ -828,13 +835,60 @@ class XProject:
                         )
         return self._constructed
 
+    def _lookups(
+        self, facts: FileFacts
+    ) -> Tuple[Dict[str, List[FunctionDef]], Dict[str, List[FunctionDef]], Dict[int, FunctionDef]]:
+        """Ba bảng tra của một tệp: tên cấp module, qualname, mút trái thân hàm."""
+        cached = self._lookup_cache.get(facts.path)
+        if cached is not None:
+            return cached
+        bare: Dict[str, List[FunctionDef]] = {}
+        qualified: Dict[str, List[FunctionDef]] = {}
+        bodies: Dict[int, FunctionDef] = {}
+        for function in facts.functions:
+            if not function.owner:
+                bare.setdefault(function.name, []).append(function)
+            qualified.setdefault(function.qualname, []).append(function)
+            bodies.setdefault(function.body_start, function)
+        cached = (bare, qualified, bodies)
+        if len(self._lookup_cache) > _MAX_LOOKUP_FILES:
+            self._lookup_cache.clear()
+        self._lookup_cache[facts.path] = cached
+        return cached
+
+    def function_spans(
+        self, path: str
+    ) -> Tuple[List[Tuple[int, int, FunctionDef]], List[int], List[int]]:
+        """Thân hàm của tệp, xếp theo mút trái, kèm mút phải lớn nhất của tiền tố.
+
+        `facts.functions` không đổi sau khi dựng chỉ mục, nên bảng này dựng
+        một lần cho mỗi tệp thay vì cho mỗi hàm được tính summary.
+        """
+        cached = self._span_cache.get(path)
+        if cached is not None:
+            return cached
+        facts = self.facts.get(path)
+        functions = facts.functions if facts is not None else []
+        spans = sorted(
+            ((f.body_start, f.body_end, f) for f in functions if not f.abstract),
+            key=lambda item: (item[0], -item[1]),
+        )
+        starts = [span[0] for span in spans]
+        reach: List[int] = []
+        furthest = -1
+        for _, end, _function in spans:
+            furthest = end if end > furthest else furthest
+            reach.append(furthest)
+        cached = (spans, starts, reach)
+        if len(self._span_cache) > _MAX_LOOKUP_FILES:
+            self._span_cache.clear()
+        self._span_cache[path] = cached
+        return cached
+
     def _function_by_body(self, facts: FileFacts, body_start: int) -> Optional[FunctionDef]:
         if body_start < 0:
             return None
-        for function in facts.functions:
-            if function.body_start == body_start:
-                return function
-        return None
+        return self._lookups(facts)[2].get(body_start)
 
     def _js_methods(self, path: str, info: ClassDef, name: str, depth: int) -> List[FunctionDef]:
         if depth > _MAX_DEPTH:
@@ -856,16 +910,16 @@ class XProject:
             return []
         head = parts[0]
         rest = parts[1:]
+        bare, qualified_index, _bodies = self._lookups(facts)
         # Hàm cấp module trong chính tệp.
         if not rest:
-            local = [f for f in facts.functions if f.name == head and not f.owner]
+            local = bare.get(head)
             if local:
-                return local
+                return list(local)
         if rest:
-            qualified = ".".join(parts)
-            local = [f for f in facts.functions if f.qualname == qualified]
+            local = qualified_index.get(".".join(parts))
             if local:
-                return local
+                return list(local)
             if head in facts.classes:
                 return self._js_member(path, facts.classes[head], rest, depth)
             if head in facts.objects:
