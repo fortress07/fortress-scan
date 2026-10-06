@@ -8,6 +8,28 @@ Số bản theo [Semantic Versioning](https://semver.org/lang/vi/). Từ 0.1.0 t
 
 ---
 
+## Chưa phát hành
+
+### Mật mã, TLS và secret viết cứng
+
+Mười rule mới, chạy trên cả 12 ngôn ngữ lập trình ( Python theo AST, phần còn lại theo token ),
+gắn nhãn **A04:2025 Cryptographic Failures** và **A07:2025 Authentication Failures**:
+
+- `FSB-CRYPTO-001` … `-008`: MD5 / SHA-1 dựng chữ ký, mật khẩu băm bằng hàm băm nhanh, DES /
+  3DES / RC4 / RC2 / Blowfish, ECB, IV / nonce / muối là hằng, khoá viết cứng, PRNG đoán được sinh
+  token, khoá RSA / DSA dưới 2048 bit.
+- `FSB-TLS-001`: tắt xác minh chứng chỉ TLS hoặc khoá máy chủ SSH.
+- `FSB-SECRET-001`: mật khẩu, token, khoá API viết cứng, kể cả theo định dạng token của AWS,
+  GitHub, GitLab, Slack, Stripe, Google, SendGrid, npm, OpenAI, Anthropic.
+
+Giá trị bí mật được che thành `[redacted]` trong đoạn mã, dấu vết và thông điệp. Mẫu khoá riêng
+PEM trong `security/redaction.py` giờ che cả phần thân base64, không chỉ dòng tiêu đề.
+
+Phép phân loại ngữ cảnh nhận thêm tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như
+`RegistrationUITest.java`, `APITests.java`.
+
+---
+
 ## 0.1.0, bản chính thức đầu tiên
 
 Bản này khép lại giai đoạn thử nghiệm. Trước nó, công cụ đã đi qua nhiều vòng dựng và tự kiểm

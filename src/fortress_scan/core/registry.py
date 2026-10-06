@@ -53,6 +53,14 @@ _OWASP_MISCONFIGURATION = (
     "A02:2025-Security Misconfiguration",
     "A05:2021-Security Misconfiguration",
 )
+# Thuật toán yếu, khoá viết cứng, IV cố định, PRNG đoán được.
+_OWASP_CRYPTO = ("A04:2025-Cryptographic Failures", "A02:2021-Cryptographic Failures")
+# Xác minh chứng chỉ ( CWE-295 ) và thông tin đăng nhập viết cứng ( CWE-798 )
+# được cả hai bản xếp vào nhóm xác thực, không phải nhóm mật mã.
+_OWASP_AUTHENTICATION = (
+    "A07:2025-Authentication Failures",
+    "A07:2021-Identification and Authentication Failures",
+)
 
 _RULE_LIST: Tuple[RuleSpec, ...] = (
     RuleSpec(
@@ -727,6 +735,202 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
             "https://docs.github.com/en/actions/security-for-github-actions/security-guides/"
             "security-hardening-for-github-actions#using-third-party-actions",
         ),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-001",
+        title="Hàm băm đã bị phá ( MD5, SHA-1 ) dùng để dựng chữ ký hoặc MAC",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-328", "CWE-327"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "MD5 và SHA-1 đã có tấn công va chạm thực tế, và kiểu ghép `md5(bi_mat + du_lieu)` "
+            "còn bị tấn công nối dài ( length extension ): biết một chữ ký hợp lệ là tự làm ra "
+            "chữ ký cho dữ liệu dài hơn mà không cần biết bí mật. Rule chỉ bắn khi dữ liệu được "
+            "băm hoặc nơi nhận kết quả mang tên bí mật hay chữ ký; băm nội dung tệp để làm ETag "
+            "hay khoá cache thì không bị báo."
+        ),
+        remediation=(
+            "Dùng HMAC với SHA-256 ( hmac.new(key, msg, hashlib.sha256), crypto.createHmac"
+            "('sha256', key) ) và so sánh chữ ký bằng hàm so sánh hằng thời gian."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/328.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-002",
+        title="Mật khẩu được băm bằng hàm băm nhanh thay vì hàm dẫn xuất khoá chậm",
+        category=Category.CRYPTO,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-916", "CWE-759"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "MD5, SHA-1 và cả SHA-256 được thiết kế để chạy NHANH: một GPU thử hàng tỉ mật khẩu "
+            "mỗi giây. Lộ bảng người dùng là lộ gần hết mật khẩu, kể cả khi có muối. Rule bắn "
+            "khi đầu vào của hàm băm mang tên mật khẩu và không nằm bên trong một hàm dẫn xuất "
+            "khoá chậm."
+        ),
+        remediation=(
+            "Dùng argon2id, scrypt hoặc bcrypt qua thư viện chuẩn của nền tảng: "
+            "argon2-cffi / passlib, password_hash() của PHP, BCryptPasswordEncoder của Spring, "
+            "golang.org/x/crypto/bcrypt."
+        ),
+        references=(
+            "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-003",
+        title="Thuật toán mã hoá đã bị phá ( DES, 3DES, RC4, RC2, Blowfish )",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-327",),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "DES có khoá 56 bit, vét cạn được trong vài giờ. 3DES và Blowfish có khối 64 bit nên "
+            "dính tấn công Sweet32 khi mã hoá nhiều dữ liệu với cùng khoá. RC4 có độ lệch thống "
+            "kê đủ để khôi phục bản rõ lặp lại ( cookie, token )."
+        ),
+        remediation="Dùng AES-GCM hoặc ChaCha20-Poly1305 qua một API mã hoá có xác thực.",
+        references=("https://cwe.mitre.org/data/definitions/327.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-004",
+        title="Mã hoá khối ở chế độ ECB",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-327",),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "ECB mã hoá từng khối độc lập: hai khối bản rõ giống nhau cho ra hai khối bản mã "
+            "giống nhau, nên cấu trúc dữ liệu lộ ra nguyên vẹn, và kẻ tấn công cắt ghép khối được "
+            "mà không bị phát hiện. Với Java, `Cipher.getInstance(\"AES\")` không ghi chế độ "
+            "cũng chính là AES/ECB."
+        ),
+        remediation=(
+            "Dùng chế độ có xác thực: AES/GCM/NoPadding với nonce ngẫu nhiên 12 byte, hoặc "
+            "AESGCM / ChaCha20Poly1305 của thư viện cryptography."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/327.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-005",
+        title="IV, nonce hoặc muối là hằng số viết cứng",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-329", "CWE-1204", "CWE-760"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "IV cố định với CBC làm hai bản rõ có cùng phần đầu cho ra cùng phần đầu bản mã. "
+            "Nonce cố định với GCM, CTR hay ChaCha20 nghiêm trọng hơn nhiều: cùng khoá và cùng "
+            "nonce là cùng dòng khoá, XOR hai bản mã ra XOR hai bản rõ, và với GCM còn khôi phục "
+            "được khoá xác thực để giả mạo bản mã. Muối cố định biến mọi mật khẩu thành một bảng "
+            "tra chung."
+        ),
+        remediation=(
+            "Sinh IV / nonce / muối mới bằng CSPRNG cho từng lần mã hoá ( os.urandom, "
+            "crypto.randomBytes, SecureRandom, crypto/rand ) và lưu kèm bản mã."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/329.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-006",
+        title="Khoá mật mã viết cứng trong mã nguồn",
+        category=Category.CRYPTO,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-321", "CWE-798"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "Một hằng chuỗi được đưa thẳng làm khoá cho bộ mã hoá, HMAC hay chữ ký JWT. Ai đọc "
+            "được mã nguồn, bản build hay lịch sử git đều giải mã được dữ liệu và ký được token "
+            "hợp lệ; muốn xoay khoá thì phải phát hành lại phần mềm."
+        ),
+        remediation=(
+            "Nạp khoá từ trình quản lý bí mật hoặc biến môi trường lúc chạy, và xoay ngay khoá "
+            "đã nằm trong lịch sử git vì xoá commit không thu hồi được nó."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/321.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-007",
+        title="Bộ sinh số ngẫu nhiên đoán được dùng cho giá trị bảo mật",
+        category=Category.CRYPTO,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-338", "CWE-330"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "random của Python, Math.random của JavaScript, java.util.Random, math/rand của Go, "
+            "rand()/mt_rand() của PHP đều là PRNG thống kê: quan sát vài đầu ra là dựng lại được "
+            "trạng thái và đoán trước mọi token kế tiếp. Dùng chúng cho token đặt lại mật khẩu, "
+            "OTP hay session id là cho phép chiếm tài khoản. Rule chỉ bắn khi giá trị đi vào một "
+            "tên mang nghĩa bảo mật; độ tin cậy vì thế là medium."
+        ),
+        remediation=(
+            "Dùng CSPRNG: secrets.token_urlsafe(), crypto.randomBytes() / crypto.randomUUID(), "
+            "SecureRandom, crypto/rand, random_bytes() / random_int()."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/338.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-008",
+        title="Khoá RSA hoặc DSA ngắn hơn 2048 bit",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-326",),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "RSA 512 bit phân tích được trên máy thuê vài giờ; 1024 bit nằm trong tầm của tổ chức "
+            "có tài nguyên và đã bị NIST loại từ 2013. Khoá sinh ra hôm nay thường sống nhiều năm."
+        ),
+        remediation="Dùng RSA tối thiểu 2048 bit ( 3072 nếu khoá sống lâu ), hoặc Ed25519 / P-256.",
+        references=("https://cwe.mitre.org/data/definitions/326.html",),
+    ),
+    RuleSpec(
+        id="FSB-TLS-001",
+        title="Tắt xác minh chứng chỉ TLS hoặc khoá máy chủ",
+        category=Category.TLS,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-295", "CWE-297"),
+        owasp=_OWASP_AUTHENTICATION,
+        description=(
+            "Kết nối vẫn được mã hoá nhưng không còn biết đang nói chuyện với ai: bất kỳ ai đứng "
+            "giữa đường ( Wi-Fi công cộng, proxy, DNS bị đầu độc ) đưa ra một chứng chỉ tự ký là "
+            "đọc và sửa được toàn bộ lưu lượng, kể cả mật khẩu và token đi trong đó."
+        ),
+        remediation=(
+            "Bỏ cờ tắt xác minh. Với CA nội bộ, trỏ tới đúng tệp CA ( verify='/duong/dan/ca.pem', "
+            "ca:, RootCAs ) thay vì tắt hẳn; với SSH, nạp known_hosts và dùng RejectPolicy."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/295.html",),
+    ),
+    RuleSpec(
+        id="FSB-SECRET-001",
+        title="Mật khẩu, token hoặc khoá API viết cứng trong mã nguồn",
+        category=Category.SECRET,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-798", "CWE-259"),
+        owasp=_OWASP_AUTHENTICATION,
+        description=(
+            "Một giá trị trông như bí mật thật được gán cho tên mang nghĩa mật khẩu, token hay "
+            "khoá, hoặc khớp định dạng token của nhà cung cấp ( AWS, GitHub, Slack, Stripe, khoá "
+            "riêng PEM ). Giá trị mẫu, chuỗi rỗng, tên biến môi trường và chuỗi có khoảng trắng "
+            "bị loại; độ tin cậy lên high khi định dạng hoặc độ ngẫu nhiên của chuỗi xác nhận nó. "
+            "Báo cáo luôn che giá trị."
+        ),
+        remediation=(
+            "Thu hồi và xoay bí mật ngay, vì nó đã nằm trong lịch sử git. Sau đó nạp từ biến môi "
+            "trường hoặc trình quản lý bí mật, và thêm bước quét secret vào CI."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/798.html",),
     ),
 )
 

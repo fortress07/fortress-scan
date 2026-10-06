@@ -50,6 +50,9 @@ class Category(str, Enum):
     SSRF = "ssrf"
     REDIRECT = "redirect"
     HTTP_HEADER = "http-header"
+    CRYPTO = "crypto"
+    TLS = "tls"
+    SECRET = "hardcoded-secret"
 
 
 class StepKind(str, Enum):

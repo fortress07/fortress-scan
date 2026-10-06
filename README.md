@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/35-rule-e05d44?style=flat-square)](#-35-rule-trên-17-họ-injection)
-[![families](https://img.shields.io/badge/17-họ%20injection-fe7d37?style=flat-square)](#-35-rule-trên-17-họ-injection)
+[![rules](https://img.shields.io/badge/45-rule-e05d44?style=flat-square)](#-45-rule-trên-22-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/22-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-45-rule-trên-22-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1185-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1423-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>35</b><br/><sub>rule</sub></td>
-<td align="center"><b>17</b><br/><sub>họ injection</sub></td>
+<td align="center"><b>45</b><br/><sub>rule</sub></td>
+<td align="center"><b>22</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1185</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>1423</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="35 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="45 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,7 +90,7 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="35 rule đối chiếu OWASP Top 10:2025 trên năm mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="45 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
@@ -98,7 +98,9 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 | 🟣 **A01 Broken Access Control** | `FSB-PATH-001` · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
 | 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) | A05:2021 |
 | 🟢 **A03 Software Supply Chain Failures** | `FSB-SUP-001` · `FSB-SUP-002` · `FSB-CI-003` · `FSB-CI-004` | A08:2021 |
+| 🟡 **A04 Cryptographic Failures** | `FSB-CRYPTO-001` … `FSB-CRYPTO-008`: hàm băm và thuật toán đã bị phá, ECB, IV/nonce/muối hằng, khoá viết cứng, PRNG đoán được, khoá RSA ngắn | A02:2021 |
 | 🔴 **A05 Injection** | 20 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression | A03:2021 |
+| 💗 **A07 Authentication Failures** | `FSB-TLS-001` ( tắt xác minh chứng chỉ ) · `FSB-SECRET-001` ( mật khẩu, token viết cứng ) | A07:2021 |
 | 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` | A08:2021 |
 
 > [!IMPORTANT]
@@ -142,7 +144,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 35 rule trên 17 họ injection
+## 🔍 45 rule trên 22 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -170,11 +172,51 @@ nên bảng này không thể lệch khỏi code.
 | **Open redirect** | 🟡 `FSB-REDIR-001` | `flask.redirect(request.args['next'])` |
 | **CRLF / header phản hồi** | 🟠 `FSB-HDR-001` | `resp.headers['X-Trace'] = gia_tri_ng` |
 | **Injection trong workflow CI** | 🔴 `FSB-CI-001` · 🔴 `-002` · 🟠 `-003` · 🟡 `-004` | `run: echo "${{ github.event.issue.title }}"` |
+| **Mật mã yếu** | 🟡 `FSB-CRYPTO-001` · 🟠 `-002` · 🟡 `-003` · 🟡 `-004` · 🟡 `-005` · 🟠 `-006` · 🟠 `-007` · 🟡 `-008` | `hashlib.md5(password)`, `AES.new(key, AES.MODE_ECB)` |
+| **Tắt xác minh TLS** | 🟠 `FSB-TLS-001` | `requests.get(url, verify=False)`, `rejectUnauthorized: false` |
+| **Secret viết cứng** | 🟠 `FSB-SECRET-001` | `DB_PASSWORD = "..."`, token AWS / GitHub / Stripe trong mã |
 
 <sub>🔴 critical · 🟠 high · 🟡 medium · 🔵 low</sub>
 
 Xem đầy đủ bằng `python -m fortress_scan --list-rules`, và giải thích từng rule bằng
 `python -m fortress_scan --explain FSB-SQL-001`.
+
+### 🔐 Mật mã, TLS và secret viết cứng
+
+Mười rule `FSB-CRYPTO-*`, `FSB-TLS-001` và `FSB-SECRET-001` chạy trên **cả 12 ngôn ngữ lập trình**
+mà công cụ đọc được ( Python theo AST, phần còn lại theo token ): Python, JavaScript / TypeScript,
+Java, Go, C#, PHP, Ruby, Rust, Lua, Perl, Shell và PowerShell. Nhóm lỗi này không cần dữ liệu
+bẩn chảy tới đâu cả, vì bản thân lời gọi đã sai. Cái khó là **phân biệt lời gọi sai với lời gọi
+trông giống hệt mà vô hại**, nên mỗi rule đọc thêm ngữ cảnh chứ không khớp tên hàm:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-CRYPTO-001` / `-002` | MD5, SHA-1, SHA-256 băm **mật khẩu**, hoặc MD5/SHA-1 dựng **chữ ký, MAC** từ secret | `md5(body)` làm ETag, khoá cache, checksum; chữ ký khai báo `usedforsecurity=False`; băm trước khi đưa vào bcrypt / PBKDF2 |
+| `FSB-CRYPTO-005` / `-006` | IV, nonce, muối hay khoá **thật sự là hằng**: chuỗi, `bytes(16)`, `make([]byte, 16)`, `b"\0" * 16`, kể cả qua một biến trung gian | biến từng được `os.urandom`, `rand.Read`, `getRandomValues` đổ đầy; khoá công khai; khoá mẫu trong thư mục test |
+| `FSB-CRYPTO-007` | `Math.random`, `random.choice`, `rand()` sinh **token, OTP, session id, mật khẩu**, kể cả qua một hàm bọc trả giá trị đó về | jitter, thời gian chờ thử lại, xáo trộn danh sách, bốc token từ bộ từ vựng của mô hình ngôn ngữ |
+| `FSB-TLS-001` | `verify=False`, `rejectUnauthorized: false`, `InsecureSkipVerify: true`, `curl -k`, `TrustManager` rỗng, `AutoAddPolicy` | mã **hiện thực tuỳ chọn** đó trong thư viện ( chỉ ghi độ tin cậy thấp kèm lý do ); một ngữ cảnh SSL chỉ báo một lần |
+| `FSB-SECRET-001` | tên mang nghĩa bí mật **và** giá trị trông như bí mật, hoặc đúng định dạng token của AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic | `"password_hash"`, `"API_KEY"` ( tên biến môi trường ), `"changeme"`, `"${TOKEN}"`, hằng của `Enum`; mật khẩu mẫu trong thư mục test |
+
+Giá trị bí mật **không bao giờ đi vào báo cáo**: đoạn mã, dấu vết và thông điệp đều thay nó bằng
+`[redacted]`, để báo cáo SARIF tải lên CI không trở thành chỗ rò rỉ thứ hai.
+
+Mười rule này được thử trên **16 dự án thật, 8114 tệp**, rồi sửa đến khi mã chạy thật của các dự
+án sạch không còn báo sai:
+
+| Dự án | Tệp | Phát hiện ở mã chạy thật | Ghi chú |
+| :--- | ---: | ---: | :--- |
+| flask · requests · express · axios · paramiko · gin · spring-petclinic · node-jsonwebtoken | 849 | **0** | phần nằm trong test vẫn được báo nhưng hạ một mức |
+| django | 2394 | 1 | `MD5PasswordHasher` đúng là băm mật khẩu bằng MD5, giữ lại cho tương thích ngược |
+| sinatra | 178 | 1 | `verify_mode = VERIFY_NONE` trong `sinatra-contrib/lib/sinatra/runner.rb` |
+| httpx · laravel/framework | 3266 | 2 | mã hiện thực tuỳ chọn `verify=False`, chỉ ở độ tin cậy **thấp** |
+| DVWA · WebGoat · juice-shop · NodeGoat | 1427 | 53 | ứng dụng **cố tình có lỗ hổng**: ECB, khoá JWT viết cứng, MD5 mật khẩu, `Math.random()` làm secret |
+
+> [!NOTE]
+> Có hai thứ **phân tích tĩnh không quyết định được**, và rule nói thẳng điều đó qua độ tin cậy
+> thay vì đoán: `FSB-CRYPTO-007` dựa vào **tên** của nơi nhận giá trị ngẫu nhiên nên chỉ ở mức
+> trung bình, còn `FSB-SECRET-001` không biết một chuỗi là secret thật hay mật khẩu demo nên cũng
+> chỉ ở mức trung bình, trừ khi giá trị khớp đúng định dạng token của một nhà cung cấp hoặc đủ dài
+> và đủ ngẫu nhiên ( từ 16 ký tự, entropy từ 3,5 bit mỗi ký tự ) để khó là chữ mẫu.
 
 ---
 

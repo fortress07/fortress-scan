@@ -553,20 +553,23 @@ def diagram_rules(theme: str) -> str:
 
 
 def diagram_owasp(theme: str) -> str:
-    cv = Canvas(392, theme)
-    c = cv.c
-    total = len(list(all_rules()))
-    cv.title(
-        "Đối chiếu OWASP Top 10:2025",
-        "Trước đây cả %d rule bị gộp vào đúng hai mục của bản 2021." % total,
-    )
-
     counts = Counter(rule.owasp[0] for rule in all_rules())
     rows = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    total = sum(counts.values())
+    cv = Canvas(102 + len(rows) * 58, theme)
+    c = cv.c
+    cv.title(
+        "Đối chiếu OWASP Top 10:2025",
+        "%d rule trải trên %d mục của bản 2025, mỗi rule vẫn mang nhãn 2021 tương ứng."
+        % (total, len(rows)),
+    )
+
     colors = {"A01": c["purple"], "A02": c["blue"], "A03": c["green"],
-              "A05": c["red"], "A08": c["orange"]}
+              "A04": c["yellow"], "A05": c["red"], "A07": c["pink"],
+              "A08": c["orange"]}
     legacy = {"A01": "A01:2021 · A10:2021 (SSRF)", "A02": "A05:2021",
-              "A03": "A08:2021", "A05": "A03:2021", "A08": "A08:2021"}
+              "A03": "A08:2021", "A04": "A02:2021", "A05": "A03:2021",
+              "A07": "A07:2021", "A08": "A08:2021"}
 
     top = max(count for _, count in rows)
     bar_x, bar_w = 470, 250

@@ -202,6 +202,11 @@ def _looks_like_test(stem: str) -> bool:
         previous = stem[-len(suffix) - 1]
         if previous.islower() or previous.isdigit():
             return True
+        # `RegistrationUITest`, `APITest`: chữ hoa đứng trước vẫn là ranh giới
+        # khi hậu tố tự mở một từ camelCase mới ( `Test` ). Hậu tố viết hoa
+        # toàn bộ như `IT` thì không, kẻo `SPLIT.java` thành tệp kiểm thử.
+        if previous.isupper() and suffix[1:].islower():
+            return True
     return False
 
 

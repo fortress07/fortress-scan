@@ -6,7 +6,10 @@ from typing import Pattern, Tuple
 PLACEHOLDER = "[redacted]"
 
 _PATTERNS: Tuple[Pattern[str], ...] = (
-    re.compile(r"-----BEGIN[A-Z ]{0,40}PRIVATE KEY-----"),
+    # Che cả phần thân base64 nằm cùng dòng ( chuỗi PEM viết trên một dòng với
+    # `\n` thoát ), không chỉ dòng tiêu đề. Một lớp ký tự duy nhất, có chặn
+    # trên, nên không có quay lui.
+    re.compile(r"-----BEGIN[A-Z ]{0,40}PRIVATE KEY-----[A-Za-z0-9+/=\s\\]{0,8192}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bASIA[0-9A-Z]{16}\b"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,80}\b"),

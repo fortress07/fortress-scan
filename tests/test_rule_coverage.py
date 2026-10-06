@@ -406,6 +406,70 @@ SAFE_VARIANTS: Dict[str, Tuple[str, str]] = {
 }
 
 
+# Điểm yếu không cần nguồn bẩn: mật mã, TLS, secret. Mẫu chi tiết cho từng ngôn
+# ngữ nằm ở tests/test_weakness_crypto.py; đây chỉ là một cặp cho mỗi rule.
+TRIGGERS.update(
+    {
+        "FSB-CRYPTO-001": (
+            PYTHON,
+            "import hashlib\ndef sig(secret, body):\n    return hashlib.md5(secret + body).hexdigest()\n",
+        ),
+        "FSB-CRYPTO-002": (
+            PYTHON,
+            "import hashlib\ndef store(password):\n    return hashlib.sha256(password.encode()).hexdigest()\n",
+        ),
+        "FSB-CRYPTO-003": (PYTHON, "from Crypto.Cipher import DES\nc = DES.new(key, DES.MODE_CBC, iv)\n"),
+        "FSB-CRYPTO-004": (
+            JAVA,
+            "class A { void f() throws Exception { Cipher c = Cipher.getInstance(\"AES\"); } }\n",
+        ),
+        "FSB-CRYPTO-005": (
+            JAVASCRIPT,
+            "const c = crypto.createCipheriv('aes-256-gcm', key, 'fixednonce12');\n",
+        ),
+        "FSB-CRYPTO-006": (JAVASCRIPT, "const t = jwt.sign({ sub: 1 }, 'jwt-signing-secret');\n"),
+        "FSB-CRYPTO-007": (
+            PYTHON,
+            "import random\ntoken = ''.join(random.choice('abc') for _ in range(32))\n",
+        ),
+        "FSB-CRYPTO-008": (PYTHON, "from Crypto.PublicKey import RSA\nk = RSA.generate(1024)\n"),
+        "FSB-TLS-001": (PYTHON, "import requests\nr = requests.get('https://x', verify=False)\n"),
+        "FSB-SECRET-001": (PYTHON, "DB_PASSWORD = 'S3cr3t!Pass2024'\n"),
+    }
+)
+
+SAFE_VARIANTS.update(
+    {
+        # ETag: băm nội dung tệp, không phải bí mật.
+        "FSB-CRYPTO-001": (
+            PYTHON,
+            "import hashlib\ndef etag(body):\n    return hashlib.md5(body).hexdigest()\n",
+        ),
+        "FSB-CRYPTO-002": (
+            PYTHON,
+            "import bcrypt\ndef store(password):\n    return bcrypt.hashpw(password, bcrypt.gensalt())\n",
+        ),
+        "FSB-CRYPTO-003": (
+            PYTHON,
+            "from Crypto.Cipher import AES\nc = AES.new(key, AES.MODE_GCM)\n",
+        ),
+        "FSB-CRYPTO-004": (
+            JAVA,
+            "class A { void f() throws Exception { Cipher c = Cipher.getInstance(\"AES/GCM/NoPadding\"); } }\n",
+        ),
+        "FSB-CRYPTO-005": (
+            JAVASCRIPT,
+            "const iv = crypto.randomBytes(12);\nconst c = crypto.createCipheriv('aes-256-gcm', key, iv);\n",
+        ),
+        "FSB-CRYPTO-006": (JAVASCRIPT, "const t = jwt.sign({ sub: 1 }, process.env.JWT_SECRET);\n"),
+        "FSB-CRYPTO-007": (PYTHON, "import secrets\ntoken = secrets.token_urlsafe(32)\n"),
+        "FSB-CRYPTO-008": (PYTHON, "from Crypto.PublicKey import RSA\nk = RSA.generate(3072)\n"),
+        "FSB-TLS-001": (PYTHON, "import requests\nr = requests.get('https://x', verify='/etc/ca.pem')\n"),
+        "FSB-SECRET-001": (PYTHON, "import os\nDB_PASSWORD = os.environ['DB_PASSWORD']\n"),
+    }
+)
+
+
 def test_every_registered_rule_has_a_trigger():
     registered = {rule.id for rule in all_rules()}
     missing = sorted(registered - set(TRIGGERS))
