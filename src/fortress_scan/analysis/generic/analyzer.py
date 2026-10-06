@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 _MAX_STATEMENTS = 20000
 _MAX_STATEMENT_TOKENS = 600
+# Thân closure dài hơn thế này thì không chạy lại tại mỗi lời gọi.
+_MAX_CLOSURE_TOKENS = 4000
 _CONTINUATION_OPERATORS = frozenset(
     {"+", "-", "*", "/", ",", "=", "(", "[", "{", "&&", "||", ".", "?", ":", "|", "\\", "+="}
 )
@@ -258,11 +260,20 @@ class _Analysis:
         if self.context is not None:
             self._track_callbacks(statement)
             if statement[0].kind == IDENT and statement[0].text == "return":
-                self._record_return(statement[1:])
+                if self._returns_from_current(statement[0]):
+                    self._record_return(statement[1:])
                 self._model_view(statement)
         self._analyze_assignment(statement)
         self._analyze_calls(statement)
         self._analyze_backticks(statement)
+
+    def _returns_from_current(self, token: Token) -> bool:
+        """`return` thuộc chính hàm đang tính summary, không thuộc callback lồng trong."""
+        context = self.context
+        if context is None or not context.summarizing or context.function is None:
+            return True
+        inner = context.function_at(token)
+        return inner is None or inner.key == context.function.key
 
     def _analyze_assignment(self, statement: Sequence[Token]) -> None:
         position = _assignment_position(statement, self.spec)
@@ -708,7 +719,18 @@ class _Analysis:
             return None
         arguments, after = _read_arguments(tokens, open_index)
         callees = context.resolve(chain, token, len(arguments))
-        if not callees or any(not callee.summary.complete for callee in callees):
+        if not callees:
+            return None
+        closures = [callee for callee in callees if context.is_closure(callee.function, token)]
+        if closures:
+            # Hàm lồng trong hàm đang chạy thấy biến của hàm ngoài: summary
+            # riêng của nó coi biến đó là sạch, nên phải chạy lại thân nó
+            # trong môi trường hiện tại.
+            result = None
+            for callee in closures:
+                result = _merge_marks(result, self._closure_result(callee.function, arguments))
+            return result, after
+        if any(not callee.summary.complete for callee in callees):
             return None
         result: Optional[TaintMark] = None
         for callee in callees:
@@ -731,6 +753,42 @@ class _Analysis:
                     continue
                 result = _merge_marks(result, replace(mark, cleared=mark.cleared | cleared))
         return result, after
+
+    def _closure_result(self, function: FunctionDef, arguments: Sequence[Sequence[Token]]) -> Optional[TaintMark]:
+        context = self.context
+        if context is None or function.body_end - function.body_start > _MAX_CLOSURE_TOKENS:
+            return None
+        child = _Analysis(self.unit, self.spec, self.budget, None)
+        child._index = context.index
+        child.tainted = dict(self.tainted)
+        child.sanitized = set(self.sanitized)
+        child.declared = self.declared
+        child.literal_vars = set(self.literal_vars)
+        child.sql_vars = set(self.sql_vars)
+        for position, name in enumerate(function.params):
+            if not name:
+                continue
+            argument = _argument_for(function, position, arguments)
+            mark = self._taint_of(argument) if argument else None
+            if mark is not None:
+                child.tainted[name] = mark
+            else:
+                child.tainted.pop(name, None)
+        body = [token for token in context.file_tokens[function.body_start : function.body_end]]
+        if function.expression_body:
+            return child._taint_of([token for token in body if token.kind != NEWLINE])
+        result: Optional[TaintMark] = None
+        for statement in _split_statements(body)[:_MAX_STATEMENTS]:
+            if not statement:
+                continue
+            self.budget.spend()
+            if statement[0].kind == IDENT and statement[0].text == "return":
+                inner = context.function_at(statement[0])
+                if inner is not None and inner.key == function.key:
+                    result = _merge_marks(result, child._taint_of(statement[1:]))
+                continue
+            child._analyze_assignment(statement)
+        return result
 
     def _record_return(self, tokens: Sequence[Token]) -> None:
         context = self.context
@@ -848,7 +906,7 @@ class _Analysis:
             else:
                 wildcard = self._taint_of(data)
         for template in templates:
-            for output in template.outputs:
+            for output in context.project.template_outputs(template):
                 tokens = mapping.get(output.root)
                 mark = self._taint_of(tokens) if tokens else wildcard
                 if mark is None or mark.params or not mark.active_for(Category.MARKUP):
@@ -870,7 +928,7 @@ class _Analysis:
             return
         templates = context.project.templates_for(view)
         for template in templates:
-            for output in template.outputs:
+            for output in context.project.template_outputs(template):
                 for key, mark, anchor in pending:
                     if key == output.root and not mark.params and mark.active_for(Category.MARKUP):
                         self._report_template(mark, anchor, template.path, output)

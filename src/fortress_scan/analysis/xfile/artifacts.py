@@ -30,7 +30,14 @@ TEMPLATE_SUFFIXES = (
     ".html",
     ".htm",
     ".twig",
+    ".swig",
 )
+# Template mà `{{ x }}` được escape mặc định; tắt escape ở tầng engine thì mọi
+# chỗ in đó thành in thô.
+_MUSTACHE_FAMILY = (".hbs", ".handlebars", ".mustache")
+_JINJA_FAMILY = (".njk", ".nunjucks", ".jinja", ".jinja2", ".j2", ".twig", ".swig")
+_EITHER_FAMILY = (".html", ".htm")
+_ESCAPE_FILTERS = frozenset({"e", "escape", "escape_html", "url_encode", "urlencode", "encodeURIComponent"})
 CONFIG_SUFFIXES = (".properties", ".yml", ".yaml", ".json", ".xml")
 SPECIAL_NAMES = ("go.mod",)
 
@@ -60,6 +67,10 @@ class TemplateInfo:
     outputs: List[RawOutput] = field(default_factory=list)
     # Toàn bộ template tắt escape ( `{% autoescape false %}` bao trùm ).
     unescaped_all: bool = False
+    # `{{ x }}` bình thường: chỉ thô khi engine tắt escape cho cả ứng dụng.
+    escaped: List[RawOutput] = field(default_factory=list)
+    # Engine nào quyết định escape của các chỗ in trên: "jinja", "mustache", "either".
+    family: str = ""
 
 
 @dataclass(frozen=True)
@@ -157,6 +168,24 @@ def parse_template(relative: str, text: str) -> TemplateInfo:
             region_end = end if end >= 0 else len(text)
             for offset, inner in _scan_pairs(text[off:region_end], "{{", "}}"):
                 add(off + offset, inner.split("|", 1)[0], "autoescape false")
+    if lowered.endswith(_MUSTACHE_FAMILY + _JINJA_FAMILY + _EITHER_FAMILY):
+        info.family = (
+            "mustache" if lowered.endswith(_MUSTACHE_FAMILY) else "jinja" if lowered.endswith(_JINJA_FAMILY) else "either"
+        )
+        raw_offsets = {(output.line, output.column) for output in outputs}
+        for offset, inner in _scan_pairs(text, "{{", "}}"):
+            body = inner.strip("-~ \t")
+            if not body or body[0] in "{&!#/>^" or body.startswith(("else", "%")):
+                continue
+            pieces = [part.strip() for part in body.split("|")]
+            if any(part.split("(", 1)[0].strip() in _ESCAPE_FILTERS for part in pieces[1:]):
+                continue
+            root = _root_of(pieces[0])
+            if not root or root[0].isdigit() or root in ("true", "false", "null", "none", "None"):
+                continue
+            line, column = _line_col(text, offset)
+            if (line, column) not in raw_offsets:
+                info.escaped.append(RawOutput(root, line, column, "{{ }}"))
     if lowered.endswith((".html", ".htm")):
         # Thymeleaf: th:utext và inline không escape `[( ... )]`.
         for marker in ('th:utext="', "th:utext='"):

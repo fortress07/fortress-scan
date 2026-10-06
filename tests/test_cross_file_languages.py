@@ -606,3 +606,64 @@ def test_js_destructuring_and_regexp_exec(tmp_path: Path):
     )
     findings = _findings(tmp_path)
     assert sorted((f.rule_id, f.line) for f in findings) == [("FSB-CMD-001", 10), ("FSB-CMD-001", 14)]
+
+
+def test_js_es5_constructor_prototype_and_closure(tmp_path: Path):
+    _project(
+        tmp_path,
+        {
+            "app/data/user-dao.js": (
+                "const mysql = require('mysql');\n"
+                "function UserDAO(db) {\n"
+                "  const conn = mysql.createConnection(db);\n"
+                "  this.findByName = (name, callback) => {\n"
+                "    const where = () => {\n"
+                "      return \"WHERE name = '\" + name + \"'\";\n"
+                "    };\n"
+                "    conn.query('SELECT * FROM users ' + where(), callback);\n"
+                "  };\n"
+                "  this.count = (name) => conn.query('SELECT count(*) FROM users WHERE name = ?', [name]);\n"
+                "}\n"
+                "UserDAO.prototype.remove = function (id) {\n"
+                "  return this.conn.query('DELETE FROM users WHERE id = ' + id);\n"
+                "};\n"
+                "module.exports = { UserDAO };\n"
+            ),
+            "app/routes/users.js": (
+                "const UserDAO = require('../data/user-dao').UserDAO;\n"
+                "function UsersHandler(db) {\n"
+                "  const userDAO = new UserDAO(db);\n"
+                "  this.show = (req, res) => {\n"
+                "    userDAO.findByName(req.query.name, (err, rows) => res.json(rows));\n"
+                "  };\n"
+                "  this.total = (req, res) => userDAO.count(req.query.name);\n"
+                "  this.drop = (req, res) => {\n"
+                "    userDAO.remove(req.params.id);\n"
+                "  };\n"
+                "}\n"
+                "module.exports = UsersHandler;\n"
+            ),
+        },
+    )
+    findings = _findings(tmp_path)
+    assert [f.line for f in _at(findings, "app/routes/users.js", "FSB-SQL-001")] == [5, 9]
+
+
+def test_js_engine_wide_autoescape_off_makes_plain_output_raw(tmp_path: Path):
+    files = {
+        "server.js": (
+            "const swig = require('swig');\n"
+            "const app = require('express')();\n"
+            "app.get('/hello', (req, res) => {\n"
+            "  res.render('hello', { name: req.query.name, title: 'x' });\n"
+            "});\n"
+        ),
+        "views/hello.html": "<h1>{{ title }}</h1>\n<p>{{ name }}</p>\n<p>{{ name | escape }}</p>\n",
+    }
+    _project(tmp_path, files)
+    assert _at(_findings(tmp_path), "server.js", "FSB-XSS-001") == []
+    files["server.js"] += "swig.setDefaults({ cache: false, autoescape: false });\n"
+    _project(tmp_path, files)
+    hits = _at(_findings(tmp_path), "server.js", "FSB-XSS-001")
+    assert [(f.line, f.trace[-1].line) for f in hits] == [(4, 2)]
+    assert "server.js:6" in hits[0].message

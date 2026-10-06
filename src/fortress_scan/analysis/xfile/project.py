@@ -177,6 +177,9 @@ class XProject:
         self._implementers: Dict[Tuple[str, str], List[ClassDef]] = {}
         self._class_file: Dict[int, str] = {}
         self.templates: Dict[str, List[artifacts.TemplateInfo]] = {}
+        # "autoescape" / "noEscape" -> nơi mã nguồn tắt escape của engine.
+        self.escape_off: Dict[str, Tuple[str, int]] = {}
+        self._enclosing: Dict[str, Optional[FunctionDef]] = {}
         self.mapper: Dict[Tuple[str, str], List[artifacts.MapperStatement]] = {}
         self.config: Dict[str, Tuple[str, str]] = {}
         self.data_files: Dict[str, Dict[str, str]] = {}
@@ -202,6 +205,8 @@ class XProject:
                 self.stats.functions += 1
         for info in facts.classes.values():
             self._class_file[id(info)] = facts.path
+        for setting, line in facts.template_settings:
+            self.escape_off.setdefault(setting, (facts.path, line))
         if facts.language in JS_FAMILY:
             stem = _strip_js_extension(facts.path)
             self._js_modules.setdefault(stem, facts.path)
@@ -225,7 +230,7 @@ class XProject:
             return
         if lowered.endswith(artifacts.TEMPLATE_SUFFIXES):
             info = artifacts.parse_template(relative, text)
-            if info.outputs:
+            if info.outputs or info.escaped:
                 self.stats.templates += 1
                 for key in artifacts.template_keys(relative):
                     self.templates.setdefault(key, []).append(info)
@@ -627,22 +632,43 @@ class XProject:
         return self._js_name(facts.path, parts, 0)
 
     def _js_var_type(self, facts: FileFacts, name: str, function: Optional[FunctionDef]) -> str:
-        if function is not None:
-            env = facts.envs.get(function.key, {})
+        # Đi từ hàm hiện tại ra các hàm bao ngoài: closure thấy biến của hàm
+        # chứa nó ( `function Handler(db) { const dao = new Dao(db); this.x = () => dao.find() }` ).
+        scope = function
+        while scope is not None:
+            env = facts.envs.get(scope.key, {})
             if name in env:
                 return env[name]
-            for param, param_type in zip(function.params, function.param_types):
-                if param == name and param_type:
-                    return param_type
-            deferred = facts.deferred.get(function.key, {}).get(name)
+            for param, param_type in zip(scope.params, scope.param_types):
+                if param == name:
+                    if param_type:
+                        return param_type
+                    return ""
+            deferred = facts.deferred.get(scope.key, {}).get(name)
             if deferred:
-                return self._js_return_type(facts, deferred, function)
+                return self._js_return_type(facts, deferred, scope)
+            scope = self.enclosing_function(facts, scope)
         if name in facts.module_types:
             return facts.module_types[name]
         deferred = facts.module_deferred.get(name)
         if deferred:
             return self._js_return_type(facts, deferred, None)
         return ""
+
+    def enclosing_function(self, facts: FileFacts, function: FunctionDef) -> Optional[FunctionDef]:
+        """Hàm nhỏ nhất trong cùng tệp có thân chứa trọn thân của `function`."""
+        key = function.key
+        if key in self._enclosing:
+            return self._enclosing[key]
+        best: Optional[FunctionDef] = None
+        for candidate in facts.functions:
+            if candidate is function or candidate.key == key or candidate.abstract:
+                continue
+            if candidate.body_start < function.body_start and function.body_end <= candidate.body_end:
+                if best is None or candidate.body_start > best.body_start:
+                    best = candidate
+        self._enclosing[key] = best
+        return best
 
     def _js_return_type(self, facts: FileFacts, chain: str, function: Optional[FunctionDef]) -> str:
         key = ("js", facts.path, chain, function.key if function is not None else "")
@@ -683,9 +709,8 @@ class XProject:
         if target is None:
             return []
         if binding.name == "*":
-            if len(parts) < 2:
-                return []
-            exported = parts[1]
+            # `const Dao = require("./dao")` với `module.exports = Dao`.
+            exported = parts[1] if len(parts) >= 2 else "default"
         else:
             exported = binding.name
         results: List[Tuple[str, ClassDef]] = []
@@ -1176,6 +1201,23 @@ class XProject:
         return None
 
     # ------------------------------------------------------------ templates
+    def template_outputs(self, template: artifacts.TemplateInfo) -> List[artifacts.RawOutput]:
+        """Chỗ in thô của template, tính cả `{{ x }}` khi engine tắt escape."""
+        if not template.escaped:
+            return template.outputs
+        used = None
+        if template.family in ("jinja", "either") and "autoescape" in self.escape_off:
+            used = "autoescape"
+        elif template.family in ("mustache", "either") and "noEscape" in self.escape_off:
+            used = "noEscape"
+        if used is None:
+            return template.outputs
+        path, line = self.escape_off[used]
+        label = "autoescape: false" if used == "autoescape" else "noEscape: true"
+        syntax = "{{ }} khi engine đặt %s ( %s:%d )" % (label, path, line)
+        extra = [artifacts.RawOutput(o.root, o.line, o.column, syntax) for o in template.escaped]
+        return list(template.outputs) + extra
+
     def templates_for(self, name: str) -> List[artifacts.TemplateInfo]:
         key = name.strip().lstrip("/").replace("\\", "/")
         found = self.templates.get(key, [])

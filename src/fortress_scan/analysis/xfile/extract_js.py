@@ -80,6 +80,11 @@ _ROUTE_METHODS = frozenset({"get", "post", "put", "delete", "patch", "all", "use
 _ROUTER_OBJECTS = frozenset({"app", "router", "server", "api", "routes", "route", "r", "fastify"})
 _NOT_FACTORIES = frozenset({"require", "async", "import", "function", "super", "this"})
 _QUEUE_CLASSES = frozenset({"Queue", "Bull", "BullQueue"})
+# Lời gọi cấu hình engine template cho cả ứng dụng: `swig.setDefaults(...)`,
+# `nunjucks.configure(...)`, `new nunjucks.Environment(...)`.
+_ENGINE_SETUP = frozenset({"setDefaults", "configure", "init", "Environment", "setup"})
+# `Handlebars.compile(src, { noEscape: true })` chỉ tắt escape cho chuỗi đó.
+_PER_TEMPLATE = frozenset({"compile", "precompile", "template", "render", "renderString", "renderFile"})
 
 
 def extract(path: str, language: str, tokens: List[Token]) -> FileFacts:
@@ -409,7 +414,7 @@ class _JsExtractor:
             kind, owner, _ = self._container_of(previous)
             if target.startswith("this."):
                 target = target[len("this.") :]
-                return target.split(".")[-1], self._enclosing_class(previous)
+                return target.split(".")[-1], self._this_owner(previous)
             if target.startswith("module.exports."):
                 name = target[len("module.exports.") :]
                 self.facts.exports[name] = name
@@ -423,6 +428,10 @@ class _JsExtractor:
                 return "default", ""
             if "." in target:
                 head_name, _, tail = target.rpartition(".")
+                if head_name.endswith(".prototype") and "." not in head_name[: -len(".prototype")]:
+                    # `Dao.prototype.find = function` -- phương thức của lớp ES5.
+                    head_name = head_name[: -len(".prototype")]
+                    self.facts.classes.setdefault(head_name, ClassDef(path=self.path, name=head_name))
                 return tail, head_name
             if kind == "class":
                 return target, owner
@@ -433,6 +442,26 @@ class _JsExtractor:
             if kind == "object" and (s.is_ident(key) or s.is_string(key)):
                 return self.tokens[key].text, owner
         return "", ""
+
+    def _this_owner(self, index: int) -> str:
+        """Lớp mà `this` tại `index` trỏ về: lớp thật, hoặc hàm khởi tạo ES5.
+
+        `function UserDAO(db) { this.find = (id) => ... }` dùng như một lớp
+        qua `new UserDAO(db)`. Chỉ nhận hàm tên viết hoa ở ngoài cùng, theo
+        quy ước của hàm khởi tạo, để `this.x = ...` trong hàm thường không
+        biến hàm đó thành lớp.
+        """
+        opener = self.s.parent[index]
+        while opener >= 0:
+            kind, name = self.containers.get(opener, ("block", ""))
+            if kind == "class":
+                return name
+            function = self.function_at_open.get(opener + 1)
+            if function is not None and function.name and not function.owner and function.name[:1].isupper():
+                self.facts.classes.setdefault(function.name, ClassDef(path=self.path, name=function.name))
+                return function.name
+            opener = self.s.parent[opener]
+        return ""
 
     def _enclosing_class(self, index: int) -> str:
         opener = self.s.parent[index]
@@ -935,7 +964,7 @@ class _JsExtractor:
                 continue
             if target.startswith("this."):
                 field_name = target[len("this.") :]
-                owner = self._enclosing_class(index)
+                owner = self._this_owner(index)
                 if owner and owner in self.facts.classes and "." not in field_name:
                     if type_name:
                         self.facts.classes[owner].fields[field_name] = type_name
@@ -1004,6 +1033,7 @@ class _JsExtractor:
                     continue
                 for start, end in arguments[1:] if s.is_string(first) else arguments:
                     self._route_argument(start, end, by_body)
+            self._escape_setting(method, after, close)
             if method == "add" and head in self.facts.queues:
                 self.facts.queue_producers.append((head, index))
             if (head == "" and method in _QUEUE_CLASSES) or (
@@ -1026,6 +1056,21 @@ class _JsExtractor:
                         self.facts.queues[target] = queue_name
             if method == "process" and head in self.facts.queues and arguments:
                 self._queue_consumer(self.facts.queues[head], arguments[-1], by_body)
+
+    def _escape_setting(self, method: str, start: int, end: int) -> None:
+        """`autoescape: false` / `noEscape: true` truyền cho engine template."""
+        s = self.s
+        if method in _PER_TEMPLATE:
+            return
+        for index in range(start + 1, end - 2):
+            if not s.is_ident(index, "autoescape", "noEscape") or not s.is_op(s.sig(index + 1), ":"):
+                continue
+            value = s.sig(s.sig(index + 1) + 1)
+            line = self.tokens[index].line
+            if s.text(index) == "autoescape" and s.is_ident(value, "false") and method in _ENGINE_SETUP:
+                self.facts.template_settings.append(("autoescape", line))
+            elif s.text(index) == "noEscape" and s.is_ident(value, "true"):
+                self.facts.template_settings.append(("noEscape", line))
 
     def _route_argument(self, start: int, end: int, by_body: Dict[int, FunctionDef]) -> None:
         s = self.s

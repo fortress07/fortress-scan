@@ -103,6 +103,20 @@ class FileContext:
             for start, end in stream.split_commas(opener + 1, closing)
         ]
 
+    @property
+    def file_tokens(self) -> Sequence[Token]:
+        return self._tokens
+
+    def is_closure(self, function: FunctionDef, token: Optional[Token]) -> bool:
+        """`function` lồng trong một hàm khác của tệp này, và lời gọi nằm trong hàm đó."""
+        if function.path != self.path or self.facts is None or token is None:
+            return False
+        index = self._positions.get((token.line, token.column))
+        if index is None:
+            return False
+        outer = self.project.enclosing_function(self.facts, function)
+        return outer is not None and outer.body_start <= index < outer.body_end
+
     def resolve(self, chain: str, token: Optional[Token], argument_count: Optional[int]) -> List[Callee]:
         function = self.function_at(token)
         key = (chain, function.key if function is not None else "", -1 if argument_count is None else argument_count)

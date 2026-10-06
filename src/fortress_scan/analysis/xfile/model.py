@@ -116,6 +116,8 @@ class FileFacts:
     queue_producers: List[Tuple[str, int]] = field(default_factory=list)
     # Bảng điều phối: tên object -> danh sách qualname của hàm trong đó.
     dispatch_tables: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+    # Engine template bị tắt escape cho cả ứng dụng: ("autoescape" | "noEscape", dòng).
+    template_settings: List[Tuple[str, int]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
