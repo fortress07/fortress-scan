@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 from ...core.budget import Budget, BudgetExceeded
 from ...core.model import Category, Confidence, Finding, StepKind
 from ...core.registry import get_rule
 from ..base import Analyzer, AnalysisUnit, FindingBuilder
 from ..python.specs import looks_like_sql
+from ..xfile.context import PROBE, SUMMARY, FileContext
+from ..xfile.model import Callee, FunctionDef, SinkHit, SourceReturn, Summary
 from .lexer import IDENT, NEWLINE, OP, STRING, Token, tokenize
 from .profiles import GenericSink, LanguageSpec, spec_for
+
+if TYPE_CHECKING:
+    from ..xfile.project import XProject
 
 _MAX_STATEMENTS = 20000
 _MAX_STATEMENT_TOKENS = 600
@@ -41,6 +46,9 @@ class TaintMark:
     #     $safe = htmlspecialchars($_GET['d']);   // khử MARKUP
     #     system("ls " . $safe);                  // sink COMMAND -> vẫn thủng
     cleared: FrozenSet[Category] = frozenset()
+    # Chỉ có khi đang tính summary của một hàm: vết nhiễm này đến từ tham số
+    # thứ mấy. Vết nhiễm của nguồn thật thì để trống.
+    params: FrozenSet[int] = frozenset()
 
     def active_for(self, category: Category) -> bool:
         return category not in self.cleared
@@ -49,19 +57,88 @@ class TaintMark:
 class GenericAnalyzer(Analyzer):
     name = "generic-dataflow"
 
-    def analyze(self, unit: AnalysisUnit, budget: Budget) -> List[Finding]:
+    def analyze(
+        self, unit: AnalysisUnit, budget: Budget, project: Optional["XProject"] = None
+    ) -> List[Finding]:
         spec = spec_for(unit.language)
         if spec is None:
             return []
         try:
             tokens = tokenize(unit.source, spec.lexer, budget)
-            return _Analysis(unit, spec, budget).run(tokens)
+            context = None
+            if project is not None and unit.relative_path in project.facts:
+                context = FileContext(project, unit.relative_path, tokens)
+            return _Analysis(unit, spec, budget, context).run(tokens)
         except BudgetExceeded:
             return []
 
+    def probe(
+        self, unit: AnalysisUnit, budget: Budget, project: "XProject"
+    ) -> List[Tuple[str, str, int]]:
+        """Chạy một lượt báo cáo chỉ để nhặt sự kiện xuyên file, bỏ phát hiện."""
+        spec = spec_for(unit.language)
+        if spec is None or unit.relative_path not in project.facts:
+            return []
+        try:
+            tokens = tokenize(unit.source, spec.lexer, budget)
+            context = FileContext(project, unit.relative_path, tokens, mode=PROBE)
+            _Analysis(unit, spec, budget, context).run(tokens)
+            return context.queue_events
+        except BudgetExceeded:
+            return []
+
+    def summarize(
+        self,
+        unit: AnalysisUnit,
+        tokens: Sequence[Token],
+        function: FunctionDef,
+        project: "XProject",
+        budget: Budget,
+        declared: Optional[Set[str]] = None,
+    ) -> Summary:
+        """Summary của một hàm: tham số nào tới sink nào, tham số nào ra return."""
+        spec = spec_for(unit.language)
+        if spec is None:
+            return Summary()
+        context = FileContext(project, unit.relative_path, tokens, mode=SUMMARY, function=function)
+        analysis = _Analysis(unit, spec, budget, context)
+        if declared is not None:
+            analysis.declared = set(declared)
+        else:
+            analysis._collect_declarations(tokens)
+        for position, (name, label) in enumerate(zip(function.params, function.param_sources)):
+            if not name:
+                continue
+            if label:
+                analysis.tainted[name] = TaintMark(label, function.line, Confidence.HIGH)
+            else:
+                analysis.tainted[name] = TaintMark(
+                    "tham số %s" % name, function.line, Confidence.HIGH, params=frozenset({position})
+                )
+        body = list(tokens[function.body_start : function.body_end])
+        try:
+            if function.expression_body:
+                analysis._record_return(body)
+                analysis._analyze_statement(body)
+            else:
+                analysis._seed_annotations(body)
+                for statement in _split_statements(body)[:_MAX_STATEMENTS]:
+                    budget.spend()
+                    if statement:
+                        analysis._analyze_statement(statement)
+        except BudgetExceeded:
+            context.incomplete = True
+        return context.summary()
+
 
 class _Analysis:
-    def __init__(self, unit: AnalysisUnit, spec: LanguageSpec, budget: Budget) -> None:
+    def __init__(
+        self,
+        unit: AnalysisUnit,
+        spec: LanguageSpec,
+        budget: Budget,
+        context: Optional[FileContext] = None,
+    ) -> None:
         self.unit = unit
         self.spec = spec
         self.budget = budget
@@ -69,10 +146,25 @@ class _Analysis:
         self.tainted: Dict[str, TaintMark] = {}
         self.sanitized: Set[str] = set()
         self.declared: Set[str] = set()
+        self.context = context
+        # Biến đang giữ một câu SQL ( dựng từ chuỗi hằng hay hằng số ở tệp
+        # khác ), và biến chỉ gồm giá trị hằng. Chỉ dùng khi có ngữ cảnh dự án:
+        # đó là lúc hằng số ở tệp khác được nhìn thấy.
+        self.sql_vars: Set[str] = set()
+        self.literal_vars: Set[str] = set()
+        # Spring MVC: thuộc tính model bẩn đang chờ biết view nào được trả về.
+        self.pending_model: Dict[str, List[Tuple[str, TaintMark, Token]]] = {}
+        # Nguồn thật cuối cùng mà _taint_of nhìn thấy cạnh vết của tham số.
+        self._last_source: Optional[TaintMark] = None
 
     def run(self, tokens: Sequence[Token]) -> List[Finding]:
         self._collect_declarations(tokens)
         self._seed_annotations(tokens)
+        if self.context is not None:
+            for name, (label, line) in self.context.project.seeded_parameters(
+                self.unit.relative_path
+            ).items():
+                self.tainted.setdefault(name, TaintMark(label, line, Confidence.HIGH))
         statements = _split_statements(tokens)
         for statement in statements[:_MAX_STATEMENTS]:
             self.budget.spend()
@@ -153,6 +245,11 @@ class _Analysis:
         if self.spec.language == "shell":
             self._analyze_shell_statement(statement)
             return
+        if self.context is not None:
+            self._track_callbacks(statement)
+            if statement[0].kind == IDENT and statement[0].text == "return":
+                self._record_return(statement[1:])
+                self._model_view(statement)
         self._analyze_assignment(statement)
         self._analyze_calls(statement)
         self._analyze_backticks(statement)
@@ -167,6 +264,8 @@ class _Analysis:
             return
         target = _assignment_target(left, self.spec)
         mark = self._taint_of(right)
+        if self.context is not None and target is not None:
+            self._track_value_kind(target, right)
 
         if target is not None:
             member = target.rsplit(".", 1)[-1]
@@ -213,6 +312,15 @@ class _Analysis:
             if opens_call:
                 arguments, _ = _read_arguments(statement, next_index)
                 self._check_call(chain, statement[index], arguments, chain_end)
+                if self.context is not None:
+                    self._project_call(chain, statement[index], arguments, statement, next_index)
+            elif (
+                self.context is not None
+                and next_index < limit
+                and statement[next_index].kind == OP
+                and statement[next_index].text == "["
+            ):
+                self._dispatch_call(chain, statement, index, next_index)
             elif chain in self.spec.bare_call_names:
                 self._check_call(
                     chain, statement[index], [list(statement[next_index:])], chain_end
@@ -231,6 +339,10 @@ class _Analysis:
             return
         if sink.require_sql:
             selected = _select_sql_argument(arguments, sink, chain, self.budget.spend)
+            if not selected and self.context is not None:
+                selected = self._select_sql_with_project(arguments, sink, anchor)
+            if not selected and self._summarizing and arguments:
+                self._record_conditional_sql(sink, chain, arguments, anchor)
         elif sink.program_position:
             wrapped = _shell_wrapper_argument(arguments)
             if wrapped is not None:
@@ -343,6 +455,437 @@ class _Analysis:
                 ),
             )
 
+    # ------------------------------------------------------------------
+    # Phân tích xuyên file: chỉ chạy khi có ngữ cảnh dự án.
+    # ------------------------------------------------------------------
+    @property
+    def _summarizing(self) -> bool:
+        return self.context is not None and self.context.summarizing
+
+    def _project_call(
+        self,
+        chain: str,
+        anchor: Token,
+        arguments: Sequence[Sequence[Token]],
+        statement: Sequence[Token],
+        open_index: int,
+    ) -> None:
+        context = self.context
+        if context is None:
+            return
+        full = context.full_arguments(anchor, chain)
+        if full is not None:
+            arguments = full
+        head, _, method = chain.rpartition(".")
+        if method == "add" and head and arguments and not context.summarizing:
+            queue_name = context.is_queue(head)
+            if queue_name is not None:
+                payload = arguments[1] if len(arguments) >= 2 else arguments[0]
+                mark = self._taint_of(payload)
+                if mark is not None and not mark.params:
+                    context.record_queue(queue_name, mark.label, anchor.line)
+        if method == "render" and head and arguments and not context.summarizing:
+            self._check_render(arguments, anchor)
+        if method in ("addAttribute", "addObject") and len(arguments) >= 2:
+            key = _sole_string(arguments[0])
+            mark = self._taint_of(arguments[1])
+            function = context.function_at(anchor)
+            if key and mark is not None and function is not None:
+                self.pending_model.setdefault(function.key, []).append((key, mark, anchor))
+        if method in _MUTATORS and head and head.split(".")[0] not in _NOT_CONTAINERS:
+            for argument in arguments:
+                mark = self._taint_of(argument)
+                if mark is not None:
+                    self.tainted[head] = mark
+                    self.sanitized.discard(head)
+                    break
+        for callee in context.resolve(chain, anchor, len(arguments)):
+            self._apply_callee(callee, anchor, arguments)
+
+    def _record_conditional_sql(
+        self, sink: GenericSink, chain: str, arguments: Sequence[Sequence[Token]], anchor: Token
+    ) -> None:
+        context = self.context
+        if context is None:
+            return
+        position = min(sink.argument_index, len(arguments) - 1)
+        mark = self._taint_of(arguments[position])
+        if mark is None or not mark.params:
+            return
+        for parameter in mark.params:
+            context.sink_hits.add(
+                SinkHit(
+                    param=parameter,
+                    rule_id=sink.tainted_rule,
+                    category=sink.category,
+                    line=anchor.line,
+                    column=anchor.column,
+                    symbol=chain,
+                    description=sink.description,
+                    path=self.unit.relative_path,
+                    requires_sql=True,
+                )
+            )
+
+    def _looks_like_sql_argument(self, argument: Sequence[Token], anchor: Token) -> bool:
+        return bool(self._select_sql_with_project([argument], _ANY_SQL_SINK, anchor)) or bool(
+            _select_sql_argument([argument], _ANY_SQL_SINK, "", self.budget.spend)
+        )
+
+    def _dispatch_call(self, chain: str, statement: Sequence[Token], index: int, bracket: int) -> None:
+        """`handlers[req.query.type](req.query.arg)`: mọi hàm trong bảng đều có thể chạy."""
+        context = self.context
+        if context is None:
+            return
+        closing = _group_end(statement, bracket)
+        if closing is None or closing >= len(statement):
+            return
+        opener = statement[closing]
+        if opener.kind != OP or opener.text != "(":
+            return
+        callees = context.dispatch(chain)
+        if not callees:
+            return
+        arguments, _ = _read_arguments(statement, closing)
+        for callee in callees:
+            self._apply_callee(callee, statement[index], arguments)
+
+    def _apply_callee(self, callee: Callee, anchor: Token, arguments: Sequence[Sequence[Token]]) -> None:
+        context = self.context
+        if context is None:
+            return
+        function = callee.function
+        for hit in callee.summary.sinks:
+            argument = _argument_for(function, hit.param, arguments)
+            if not argument:
+                continue
+            mark = self._taint_of(argument)
+            if mark is None or not mark.active_for(hit.category):
+                continue
+            via = (function.display,) + hit.via
+            proven = not hit.requires_sql or self._looks_like_sql_argument(argument, anchor)
+            if context.summarizing:
+                for parameter in mark.params:
+                    context.sink_hits.add(
+                        replace(hit, param=parameter, via=via, requires_sql=not proven)
+                    )
+                continue
+            if mark.params or not proven:
+                continue
+            self._emit_hit(hit, via, mark, anchor, callee)
+
+    def _emit_hit(
+        self, hit: SinkHit, via: Tuple[str, ...], mark: TaintMark, anchor: Token, callee: Callee
+    ) -> None:
+        function = callee.function
+        same_file = hit.path == self.unit.relative_path
+        parameter = (
+            function.params[hit.param]
+            if 0 <= hit.param < len(function.params) and function.params[hit.param]
+            else "#%d" % (hit.param + 1)
+        )
+        call_step = self.builder.step(
+            StepKind.CALL,
+            anchor.line,
+            anchor.column,
+            "được truyền vào %s() ở tham số %s" % (function.display, parameter),
+        )
+        sink_step = self.builder.step(
+            StepKind.SINK,
+            hit.line,
+            hit.column,
+            "chạy tới %s" % hit.description,
+            code="" if same_file else hit.symbol,
+            path="" if same_file else hit.path,
+        )
+        route = " -> ".join("%s()" % name for name in via)
+        crosses = (not same_file) or function.path != self.unit.relative_path
+        confidence = min(mark.confidence, Confidence.HIGH)
+        if callee.how == "dispatch":
+            confidence = min(confidence, Confidence.MEDIUM)
+        tags = ("interprocedural", "cross-file") if crosses else ("interprocedural",)
+        if same_file:
+            line, column = hit.line, hit.column
+            message = "%s đi qua %s rồi vào %s" % (mark.label, route, hit.description)
+        else:
+            line, column = anchor.line, anchor.column
+            message = "%s đi qua %s rồi vào %s trong %s" % (
+                mark.label,
+                route,
+                hit.description,
+                hit.path,
+            )
+        self.builder.add(
+            rule_id=hit.rule_id,
+            line=line,
+            column=column,
+            symbol=hit.symbol,
+            message=message,
+            confidence=confidence,
+            trace=(
+                self.builder.step(StepKind.SOURCE, mark.line, 0, "%s đi vào từ đây" % mark.label),
+                call_step,
+                sink_step,
+            ),
+            tags=tags,
+        )
+
+    def _call_result(
+        self, chain: str, token: Token, tokens: Sequence[Token], open_index: int
+    ) -> Optional[Tuple[Optional[TaintMark], int]]:
+        """Vết nhiễm của giá trị trả về khi lời gọi trỏ về một hàm đã có summary.
+
+        None nghĩa là "không biết hàm này": để bộ phân tích dùng quy tắc cũ
+        ( đối số bẩn thì kết quả bẩn ). Biết hàm thì summary quyết định, kể cả
+        khi nó nói kết quả sạch -- đó là lúc bộ khử độc viết ở tệp khác được
+        công nhận.
+        """
+        context = self.context
+        if context is None:
+            return None
+        arguments, after = _read_arguments(tokens, open_index)
+        callees = context.resolve(chain, token, len(arguments))
+        if not callees or any(not callee.summary.complete for callee in callees):
+            return None
+        result: Optional[TaintMark] = None
+        for callee in callees:
+            summary = callee.summary
+            if summary.source is not None:
+                result = _merge_marks(
+                    result,
+                    TaintMark(
+                        "%s ( trả về từ %s() )" % (summary.source.label, callee.function.display),
+                        token.line,
+                        Confidence.HIGH,
+                    ),
+                )
+            for parameter, cleared in summary.returns.items():
+                argument = _argument_for(callee.function, parameter, arguments)
+                if not argument:
+                    continue
+                mark = self._taint_of(argument)
+                if mark is None:
+                    continue
+                result = _merge_marks(result, replace(mark, cleared=mark.cleared | cleared))
+        return result, after
+
+    def _record_return(self, tokens: Sequence[Token]) -> None:
+        context = self.context
+        if context is None or not context.summarizing or not tokens:
+            return
+        mark = self._taint_of(tokens)
+        source = self._last_source
+        if mark is None:
+            return
+        for parameter in mark.params:
+            previous = context.returns.get(parameter)
+            context.returns[parameter] = mark.cleared if previous is None else (previous & mark.cleared)
+        if source is not None and context.source_return is None:
+            context.source_return = SourceReturn(source.label, source.line, self.unit.relative_path)
+
+    def _track_value_kind(self, target: str, right: Sequence[Token]) -> None:
+        chains = self._chains(right)
+        constants: List[str] = []
+        constant_only = not any(token.interpolated for token in right)
+        sql_flag = False
+        for chain in chains:
+            if chain in self.literal_vars:
+                if chain in self.sql_vars:
+                    sql_flag = True
+                continue
+            if chain in self.sql_vars:
+                sql_flag = True
+            value = self._constant(chain, right[0])
+            if value is None:
+                constant_only = False
+            else:
+                constants.append(value)
+        text = " ".join([token.text for token in right if token.kind == STRING] + constants)
+        if sql_flag or (text and looks_like_sql(text, self.budget.spend)):
+            self.sql_vars.add(target)
+        else:
+            self.sql_vars.discard(target)
+        if constant_only:
+            self.literal_vars.add(target)
+        else:
+            self.literal_vars.discard(target)
+
+    def _constant(self, chain: str, token: Optional[Token]) -> Optional[str]:
+        if self.context is None:
+            return None
+        found = self.context.constant(chain, token)
+        return found[0] if found is not None else None
+
+    def _select_sql_with_project(
+        self, arguments: Sequence[Sequence[Token]], sink: GenericSink, anchor: Token
+    ) -> Sequence[Token]:
+        for argument in arguments:
+            pieces = [token.text for token in argument if token.kind == STRING]
+            for chain in self._chains(argument):
+                if chain in self.sql_vars:
+                    return argument
+                value = self._constant(chain, anchor)
+                if value is not None:
+                    pieces.append(value)
+            for index, token in enumerate(argument):
+                # `config.get("queries.findUser")` của node-config.
+                if token.kind != IDENT or token.text != "get" or index < 2:
+                    continue
+                owner = argument[index - 2]
+                if owner.kind != IDENT or owner.text not in _CONFIG_OBJECTS:
+                    continue
+                if index + 2 < len(argument) and argument[index + 2].kind == STRING:
+                    value_found = self.context.config_value(argument[index + 2].text) if self.context else None
+                    if value_found is not None:
+                        pieces.append(value_found[0])
+            text = " ".join(pieces)
+            if text and looks_like_sql(text, self.budget.spend):
+                return argument
+        return ()
+
+    def _is_constant_expression(self, tokens: Sequence[Token]) -> bool:
+        if any(token.interpolated for token in tokens):
+            return False
+        chains = self._chains(tokens)
+        if not chains:
+            return False
+        for chain in chains:
+            if chain in self.literal_vars:
+                continue
+            if self._constant(chain, tokens[0]) is None:
+                return False
+        return True
+
+    def _check_render(self, arguments: Sequence[Sequence[Token]], anchor: Token) -> None:
+        context = self.context
+        if context is None:
+            return
+        view = _sole_string(arguments[0])
+        if not view:
+            return
+        templates = context.project.templates_for(view)
+        if not templates:
+            return
+        mapping: Dict[str, Sequence[Token]] = {}
+        wildcard: Optional[TaintMark] = None
+        if len(arguments) >= 2:
+            data = [token for token in arguments[1] if token.kind != NEWLINE]
+            if data and data[0].kind == OP and data[0].text == "{" and data[-1].text == "}":
+                for piece in _split_top_level(data[1:-1]):
+                    if not piece:
+                        continue
+                    if piece[0].kind == OP and piece[0].text == "...":
+                        spread = self._taint_of(piece[1:])
+                        wildcard = wildcard or spread
+                        continue
+                    if len(piece) >= 3 and piece[1].kind == OP and piece[1].text == ":":
+                        mapping[piece[0].text] = piece[2:]
+                    elif piece[0].kind == IDENT:
+                        mapping[piece[0].text] = piece[:1]
+            else:
+                wildcard = self._taint_of(data)
+        for template in templates:
+            for output in template.outputs:
+                tokens = mapping.get(output.root)
+                mark = self._taint_of(tokens) if tokens else wildcard
+                if mark is None or mark.params or not mark.active_for(Category.MARKUP):
+                    continue
+                self._report_template(mark, anchor, template.path, output)
+
+    def _model_view(self, statement: Sequence[Token]) -> None:
+        context = self.context
+        if context is None or context.summarizing or len(statement) < 2:
+            return
+        view = _sole_string(statement[1:])
+        if not view:
+            return
+        function = context.function_at(statement[0])
+        if function is None:
+            return
+        pending = self.pending_model.pop(function.key, [])
+        if not pending:
+            return
+        templates = context.project.templates_for(view)
+        for template in templates:
+            for output in template.outputs:
+                for key, mark, anchor in pending:
+                    if key == output.root and not mark.params and mark.active_for(Category.MARKUP):
+                        self._report_template(mark, anchor, template.path, output)
+
+    def _report_template(self, mark: TaintMark, anchor: Token, template_path: str, output) -> None:
+        self.builder.add(
+            rule_id="FSB-XSS-001",
+            line=anchor.line,
+            column=anchor.column,
+            symbol=output.root,
+            message="%s được template %s in ra không escape ( %s )"
+            % (mark.label, template_path, output.syntax),
+            confidence=min(mark.confidence, Confidence.HIGH),
+            trace=(
+                self.builder.step(StepKind.SOURCE, mark.line, 0, "%s đi vào từ đây" % mark.label),
+                self.builder.step(StepKind.CALL, anchor.line, anchor.column, "được đưa vào template"),
+                self.builder.step(
+                    StepKind.SINK,
+                    output.line,
+                    output.column,
+                    "in ra không escape bằng %s" % output.syntax,
+                    code=output.syntax,
+                    path=template_path,
+                ),
+            ),
+            tags=("cross-file", "template"),
+        )
+
+    def _track_callbacks(self, statement: Sequence[Token]) -> None:
+        """Tham số của callback nhận phần tử từ một tập hợp bẩn.
+
+            ids.forEach(id => db.query("... " + id))
+            for _, v := range r.URL.Query()["x"] { exec.Command(v) }
+        """
+        limit = len(statement)
+        for index, token in enumerate(statement):
+            if token.kind != IDENT or token.in_string:
+                continue
+            if token.text == "range" and self.spec.language == "go":
+                mark = self._taint_of(statement[index + 1 :])
+                if mark is None:
+                    continue
+                for back in range(index - 1, -1, -1):
+                    candidate = statement[back]
+                    if candidate.kind == OP and candidate.text in (":=", "="):
+                        names = [t for t in statement[:back] if t.kind == IDENT and t.text not in ("for", "_")]
+                        if names:
+                            self.tainted[names[-1].text] = mark
+                        break
+                continue
+            if token.text not in _ITERATORS or index < 2:
+                continue
+            separator = statement[index - 1]
+            if separator.kind != OP or separator.text not in self.spec.chain_separators + ("?.",):
+                continue
+            if index + 1 >= limit or statement[index + 1].text != "(":
+                continue
+            receiver_end = index - 2
+            receiver_start = receiver_end
+            while (
+                receiver_start - 2 >= 0
+                and statement[receiver_start - 1].kind == OP
+                and statement[receiver_start - 1].text in self.spec.chain_separators
+                and statement[receiver_start - 2].kind == IDENT
+            ):
+                receiver_start -= 2
+            receiver = _read_chain(statement, receiver_start, self.spec)[0]
+            if receiver is None:
+                continue
+            mark = self._mark_for(receiver, token.line)
+            if mark is None:
+                continue
+            names = _callback_parameters(statement, index + 2)
+            if not names:
+                continue
+            position = 1 if token.text == "reduce" and len(names) > 1 else 0
+            self.tainted[names[position]] = mark
+
     def _report_expression(
         self,
         rule_id: str,
@@ -369,6 +912,24 @@ class _Analysis:
         # chỉ là nói được chính xác theo từng nhóm.
         if mark is not None and not mark.active_for(_category_of(rule_id)):
             return
+        if self.context is not None and self.context.summarizing:
+            if mark is not None and mark.params:
+                for parameter in mark.params:
+                    self.context.sink_hits.add(
+                        SinkHit(
+                            param=parameter,
+                            rule_id=rule_id,
+                            category=_category_of(rule_id),
+                            line=target.line,
+                            column=target.column,
+                            symbol=symbol,
+                            description=description,
+                            path=self.unit.relative_path,
+                        )
+                    )
+            return
+        if mark is not None and mark.params:
+            return
         if mark is not None:
             self.builder.add(
                 rule_id=rule_id,
@@ -388,6 +949,8 @@ class _Analysis:
             )
             return
         if dynamic_rule is None or _is_literal(tokens) or self._is_neutralized(tokens):
+            return
+        if self.context is not None and self._is_constant_expression(tokens):
             return
         self.builder.add(
             rule_id=dynamic_rule,
@@ -417,6 +980,20 @@ class _Analysis:
             if chain is None:
                 index += 1
                 continue
+            if (
+                self.context is not None
+                and next_index < limit
+                and tokens[next_index].kind == OP
+                and tokens[next_index].text == "("
+                and not tokens[next_index].in_string
+            ):
+                resolved = self._call_result(chain, tokens[index], tokens, next_index)
+                if resolved is not None:
+                    returned, after = resolved
+                    if returned is not None:
+                        hits.append((index, returned))
+                    index = max(after, index + 1)
+                    continue
             mark = self._mark_for(chain, tokens[index].line)
             if mark is not None:
                 hits.append((index, mark))
@@ -427,17 +1004,25 @@ class _Analysis:
         protected = _sanitizer_ranges(tokens, self.spec, self.declared)
         surviving: Optional[TaintMark] = None
         cleared: Optional[FrozenSet[Category]] = None
+        params: FrozenSet[int] = frozenset()
+        real_source: Optional[TaintMark] = None
         for position, mark in hits:
             here = mark.cleared
             for start, end, categories in protected:
                 if start <= position < end:
                     here = here | categories
             cleared = here if cleared is None else (cleared & here)
-            if surviving is None and here != _EVERY_CATEGORY:
-                surviving = mark
+            if here != _EVERY_CATEGORY:
+                if surviving is None:
+                    surviving = mark
+                params = params | mark.params
+                if real_source is None and not mark.params:
+                    real_source = mark
+        self._last_source = None
         if surviving is None or cleared is None or cleared == _EVERY_CATEGORY:
             return None
-        return replace(surviving, cleared=cleared)
+        self._last_source = real_source
+        return replace(surviving, cleared=cleared, params=params)
 
     def _mark_for(self, chain: str, line: int) -> Optional[TaintMark]:
         """Vết nhiễm của một chuỗi truy cập, kể cả khi nó đi qua thuộc tính.
@@ -453,6 +1038,12 @@ class _Analysis:
         Phép tra theo tiền tố này đã có sẵn cho bảng nguồn ( vì `req.query.x`
         phải khớp `req.query` ), chỗ thiếu chỉ là bảng biến bẩn.
         """
+        if self._summarizing and "." in chain:
+            # `req.query.id` với `req` là tham số: nguồn thật thắng vết tham số,
+            # vì caller thường truyền `req` -- thứ tự nó không mang vết nhiễm.
+            source = self._source_mark(chain, line)
+            if source is not None:
+                return source
         mark = self.tainted.get(chain)
         if mark is not None:
             return mark
@@ -473,10 +1064,17 @@ class _Analysis:
         label = self.spec.sources.get(chain)
         if label is not None:
             return TaintMark(label, line, Confidence.HIGH)
+        extra = self.context.extra_sources if self.context is not None else None
+        if extra:
+            label = extra.get(chain)
+            if label is not None:
+                return TaintMark(label, line, Confidence.HIGH)
         prefix = chain
         while "." in prefix:
             prefix = prefix.rsplit(".", 1)[0]
             label = self.spec.sources.get(prefix)
+            if label is None and extra:
+                label = extra.get(prefix)
             if label is not None:
                 return TaintMark(label, line, Confidence.HIGH)
         return None
@@ -507,6 +1105,104 @@ class _Analysis:
                 found.append(chain)
             index = max(next_index if chain else index + 1, index + 1)
         return found
+
+
+_MUTATORS = frozenset(
+    {"push", "unshift", "add", "addAll", "put", "putAll", "append", "insert", "extend", "offer", "Add", "AddRange", "Store", "set", "concat"}
+)
+# Đối tượng có phương thức trùng tên mutator nhưng không phải tập hợp dữ liệu:
+# `res.set("X-Frame-Options", v)` không làm `res` thành dữ liệu bẩn.
+_NOT_CONTAINERS = frozenset(
+    {"res", "response", "resp", "w", "ctx", "c", "reply", "headers", "this", "self", "model", "app", "router", "logger", "log", "console", "cache", "redis", "client", "queue", "map", "url", "searchParams", "params", "cookies", "session", "req", "request", "r", "builder", "sb", "set"}
+)
+_ITERATORS = frozenset(
+    {"forEach", "map", "flatMap", "filter", "find", "some", "every", "reduce", "then", "each", "forEachOrdered", "peek", "anyMatch", "allMatch"}
+)
+_CONFIG_OBJECTS = frozenset({"config", "nconf", "conf", "settings", "cfg"})
+_ANY_SQL_SINK = GenericSink((), Category.SQL, "FSB-SQL-001", "FSB-SQL-002", "", require_sql=True)
+
+
+def _argument_for(
+    function: FunctionDef, parameter: int, arguments: Sequence[Sequence[Token]]
+) -> Optional[List[Token]]:
+    if parameter < 0:
+        return None
+    if function.variadic and function.params and parameter == len(function.params) - 1:
+        if parameter >= len(arguments):
+            return None
+        merged: List[Token] = []
+        for argument in arguments[parameter:]:
+            merged.extend(argument)
+        return merged
+    if parameter >= len(arguments):
+        return None
+    return list(arguments[parameter])
+
+
+def _merge_marks(current: Optional[TaintMark], new: TaintMark) -> TaintMark:
+    if current is None:
+        return new
+    return replace(
+        current,
+        cleared=current.cleared & new.cleared,
+        params=current.params | new.params,
+    )
+
+
+def _split_top_level(tokens: Sequence[Token]) -> List[List[Token]]:
+    pieces: List[List[Token]] = [[]]
+    depth = 0
+    for token in tokens:
+        if token.kind == OP and not token.in_string:
+            if token.text in "([{":
+                depth += 1
+            elif token.text in ")]}":
+                depth -= 1
+            elif token.text == "," and depth == 0:
+                pieces.append([])
+                continue
+        pieces[-1].append(token)
+    return pieces
+
+
+def _callback_parameters(statement: Sequence[Token], start: int) -> List[str]:
+    """Tên tham số của hàm callback bắt đầu tại `start` ( `x =>`, `(a, b) =>`, `x ->` )."""
+    limit = min(len(statement), start + 24)
+    if start >= limit:
+        return []
+    first = statement[start]
+    if first.kind == IDENT and first.text in ("async", "function"):
+        start += 1
+        if start < limit and statement[start].kind == IDENT and statement[start].text == "function":
+            start += 1
+        if start < limit and statement[start].kind == IDENT and statement[start - 1].text == "function":
+            start += 1
+        first = statement[start] if start < limit else first
+    if first.kind == IDENT:
+        following = statement[start + 1] if start + 1 < limit else None
+        if following is not None and following.kind == OP and following.text in ("=>", "->"):
+            return [first.text]
+        return []
+    if first.kind == OP and first.text == "(":
+        names: List[str] = []
+        cursor = start + 1
+        expect_name = True
+        while cursor < limit:
+            token = statement[cursor]
+            if token.kind == OP and token.text == ")":
+                after = statement[cursor + 1] if cursor + 1 < limit else None
+                if after is not None and after.kind == OP and after.text in ("=>", "->", "{"):
+                    return names
+                if after is None:
+                    return names
+                return names
+            if token.kind == OP and token.text == ",":
+                expect_name = True
+            elif token.kind == IDENT and expect_name:
+                names.append(token.text)
+                expect_name = False
+            cursor += 1
+    return []
 
 
 def _category_of(rule_id: str) -> Category:

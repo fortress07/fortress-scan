@@ -11,6 +11,9 @@ from ..analysis.python.analyzer import PythonAnalyzer, UnparsableSource
 from ..analysis.python.project import MAX_INDEX_FUNCTIONS, ProjectIndex
 from ..analysis.unicode_scan import UnicodeAnalyzer
 from ..analysis.workflow import WorkflowAnalyzer
+from ..analysis.xfile import builder as xfile_builder
+from ..analysis.xfile.project import SUPPORTED as XFILE_LANGUAGES
+from ..analysis.xfile.project import XProject
 from ..languages import MANIFEST, PYTHON, WORKFLOW
 from ..security import paths as safe_paths
 from . import baseline as baseline_module
@@ -33,6 +36,9 @@ _MAX_FINDINGS = 20_000
 # Phân tích xuyên file giữ hai vòng thu thập trong RAM nên phải có chặn trên
 # riêng; vượt mức thì tắt hẳn và nói rõ thay vì im lặng quét nông.
 _MAX_CROSS_FILE_FILES = 2000
+# Chỉ mục JS/TS/Java/Go chỉ giữ "sự thật" gọn của từng tệp ( hàm, import,
+# kiểu ) chứ không giữ AST, nên chịu được cây lớn hơn nhiều.
+_MAX_XFILE_FILES = 20000
 
 _T = TypeVar("_T")
 
@@ -57,7 +63,7 @@ def scan(
     findings: List[Finding] = []
     suppressed = 0
 
-    outcomes, phase_notices = _run(discovered, settings)
+    outcomes, phase_notices = _run(discovered, settings, discovery.artifacts)
     coverage_notices.extend(phase_notices)
     for outcome in outcomes:
         if outcome.error is not None:
@@ -231,7 +237,9 @@ class _Outcome:
 
 
 def _run(
-    discovered: Sequence[DiscoveredFile], config: Config
+    discovered: Sequence[DiscoveredFile],
+    config: Config,
+    artifact_files: Sequence[DiscoveredFile] = (),
 ) -> Tuple[List[_Outcome], List[ScanNotice]]:
     """Phân tích mọi tệp, dựng trước chỉ mục xuyên file cho phần Python.
 
@@ -272,10 +280,80 @@ def _run(
                         details=("giới hạn bảo vệ bộ nhớ của chính lượt quét",),
                     )
                 )
+    xproject = _build_xproject(discovered, artifact_files, config, notices)
     outcomes = _map_files(
-        discovered, config, lambda item: _analyze_file(item, config, project)
+        discovered, config, lambda item: _analyze_file(item, config, project, xproject)
     )
     return outcomes, notices
+
+
+def _build_xproject(
+    discovered: Sequence[DiscoveredFile],
+    artifact_files: Sequence[DiscoveredFile],
+    config: Config,
+    notices: List[ScanNotice],
+) -> Optional[XProject]:
+    if not config.cross_file_analysis:
+        return None
+    files = [item for item in discovered if item.language in XFILE_LANGUAGES]
+    if not files:
+        return None
+    if len(files) > _MAX_XFILE_FILES:
+        notices.append(
+            ScanNotice(
+                kind="cross-file-analysis-skipped",
+                summary=(
+                    "dự án có %d tệp JS/TS/Java/Go nên vượt chặn trên %d; lượt quét "
+                    "này không theo dõi dữ liệu xuyên file cho các ngôn ngữ đó"
+                    % (len(files), _MAX_XFILE_FILES)
+                ),
+                details=("tách quét từng thư mục con nếu cần đường đi xuyên file",),
+            )
+        )
+        return None
+
+    def reader(item: DiscoveredFile):
+        def read() -> Optional[str]:
+            try:
+                return read_source(item.path, item.language, item.identity)[0]
+            except (FileChangedDuringScan, OSError, MemoryError):
+                return None
+
+        return read
+
+    sources = [
+        xfile_builder.SourceFile(relative=item.relative, language=item.language, read=reader(item))
+        for item in files
+    ]
+    artifact_inputs = [(item.relative, reader(item)) for item in artifact_files]
+    # package.json được phát hiện như manifest nhưng cũng nói tên gói trong
+    # workspace trỏ về thư mục nào.
+    artifact_inputs.extend(
+        (item.relative, reader(item))
+        for item in discovered
+        if item.language == MANIFEST and item.relative.rsplit("/", 1)[-1] == "package.json"
+    )
+    project, report = xfile_builder.build(sources, artifact_inputs, config)
+    if project.stats.truncated:
+        notices.append(
+            ScanNotice(
+                kind="cross-file-analysis-reduced",
+                summary="dự án có quá nhiều hàm JS/TS/Java/Go nên chỉ mục xuyên file bị cắt bớt",
+                details=("giới hạn bảo vệ bộ nhớ của chính lượt quét",),
+            )
+        )
+    if not report.converged:
+        notices.append(
+            ScanNotice(
+                kind="cross-file-analysis-reduced",
+                summary=(
+                    "summary xuyên file chưa hội tụ sau %d vòng; chuỗi gọi rất dài "
+                    "có thể chưa được nối hết" % report.rounds
+                ),
+                details=("giới hạn số vòng bảo vệ thời gian của lượt quét",),
+            )
+        )
+    return project
 
 
 def _build_project(files: Sequence[DiscoveredFile], config: Config) -> ProjectIndex:
@@ -328,7 +406,10 @@ def _map_files(
 
 
 def _analyze_file(
-    discovered: DiscoveredFile, config: Config, project: Optional[ProjectIndex] = None
+    discovered: DiscoveredFile,
+    config: Config,
+    project: Optional[ProjectIndex] = None,
+    xproject: Optional[XProject] = None,
 ) -> _Outcome:
     outcome = _Outcome()
     outcome.language = discovered.language
@@ -363,7 +444,7 @@ def _analyze_file(
         degraded_encoding=degraded,
     )
     try:
-        findings, failure = _analyze_unit(unit, config, project)
+        findings, failure = _analyze_unit(unit, config, project, xproject)
     except RecursionError:
         outcome.error = ScanError(
             path=discovered.relative, reason="nesting-too-deep", detail="chạm giới hạn đệ quy"
@@ -396,7 +477,10 @@ def _analyze_file(
 
 
 def _analyze_unit(
-    unit: AnalysisUnit, config: Config, project: Optional[ProjectIndex] = None
+    unit: AnalysisUnit,
+    config: Config,
+    project: Optional[ProjectIndex] = None,
+    xproject: Optional[XProject] = None,
 ) -> Tuple[List[Finding], Optional[Tuple[str, str]]]:
     findings: List[Finding] = []
     failure: Optional[Tuple[str, str]] = None
@@ -423,6 +507,8 @@ def _analyze_unit(
     try:
         if unit.language == PYTHON:
             findings.extend(analyzer.analyze(unit, budget, project))
+        elif xproject is not None and unit.language in XFILE_LANGUAGES:
+            findings.extend(_GENERIC_ANALYZER.analyze(unit, budget, xproject))
         else:
             findings.extend(analyzer.analyze(unit, budget))
     except UnparsableSource as exc:
