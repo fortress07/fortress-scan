@@ -28,6 +28,13 @@ C = "c"
 CPP = "cpp"
 OBJC = "objective-c"
 
+# Các ngôn ngữ JVM khác Java: cùng thư viện chuẩn, khác cú pháp chuỗi và khai báo.
+KOTLIN = "kotlin"
+SCALA = "scala"
+# Groovy gồm cả Jenkinsfile và script Gradle: `sh "..."` của pipeline là một
+# lệnh shell chạy trên máy build giữ credential.
+GROOVY = "groovy"
+
 _EXTENSION_MAP: Dict[str, str] = {
     ".py": PYTHON,
     ".pyw": PYTHON,
@@ -52,10 +59,16 @@ _EXTENSION_MAP: Dict[str, str] = {
     ".java": JAVA,
     ".jsp": JAVA,
     ".jspx": JAVA,
-    ".kt": JAVA,
-    ".kts": JAVA,
-    ".groovy": JAVA,
-    ".scala": JAVA,
+    ".kt": KOTLIN,
+    ".kts": KOTLIN,
+    ".groovy": GROOVY,
+    ".gvy": GROOVY,
+    ".gy": GROOVY,
+    ".gsh": GROOVY,
+    ".gradle": GROOVY,
+    ".jenkinsfile": GROOVY,
+    ".scala": SCALA,
+    ".sc": SCALA,
     ".c": C,
     ".h": C,
     ".cc": CPP,
@@ -100,7 +113,15 @@ _FILENAME_MAP: Dict[str, str] = {
     "Rakefile": RUBY,
     "Dockerfile": SHELL,
     "Makefile": SHELL,
+    "Jenkinsfile": GROOVY,
 }
+
+# Tiền tố tên tệp: `Jenkinsfile.release`, `Jenkinsfile-nightly`.
+_FILENAME_PREFIXES: Tuple[Tuple[str, str], ...] = (
+    ("Jenkinsfile.", GROOVY),
+    ("Jenkinsfile-", GROOVY),
+    ("Jenkinsfile_", GROOVY),
+)
 
 _SHEBANG_MAP: Tuple[Tuple[str, str], ...] = (
     ("python", PYTHON),
@@ -170,7 +191,17 @@ def language_from_name(name: str) -> Optional[str]:
     mapped = _FILENAME_MAP.get(name)
     if mapped is not None:
         return mapped
+    mapped = _by_prefix(name)
+    if mapped is not None:
+        return mapped
     return _EXTENSION_MAP.get(PurePath(name).suffix.lower())
+
+
+def _by_prefix(name: str) -> Optional[str]:
+    for prefix, language in _FILENAME_PREFIXES:
+        if name.startswith(prefix) and len(name) > len(prefix):
+            return language
+    return None
 
 
 def detect_language(path: Path, name: Optional[str] = None) -> Optional[str]:
@@ -182,6 +213,9 @@ def detect_language(path: Path, name: Optional[str] = None) -> Optional[str]:
     """
     label = name or path.name
     mapped = _FILENAME_MAP.get(label)
+    if mapped is not None:
+        return mapped
+    mapped = _by_prefix(label)
     if mapped is not None:
         return mapped
     suffix = PurePath(label).suffix.lower()
@@ -231,7 +265,7 @@ def display_name(language: str) -> str:
         JAVASCRIPT: "JavaScript",
         TYPESCRIPT: "TypeScript",
         PHP: "PHP",
-        JAVA: "Java/JVM",
+        JAVA: "Java",
         RUBY: "Ruby",
         GO: "Go",
         CSHARP: "C#",
@@ -245,4 +279,7 @@ def display_name(language: str) -> str:
         C: "C",
         CPP: "C++",
         OBJC: "Objective-C",
+        KOTLIN: "Kotlin",
+        SCALA: "Scala",
+        GROOVY: "Groovy",
     }.get(language, language)

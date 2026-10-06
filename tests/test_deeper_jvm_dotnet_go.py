@@ -99,6 +99,46 @@ def test_java_path_redirect_and_pattern_compile():
     assert hits(source, JAVA) == [("FSB-PATH-001", 4), ("FSB-REDIR-001", 5)]
 
 
+def test_java_redirect_with_a_fixed_origin_is_silent():
+    source = (
+        "class A {\n"
+        "  void a(HttpServletRequest request, HttpServletResponse response) throws Exception {\n"
+        '    String f = request.getParameter("f");\n'
+        '    response.sendRedirect("/" + f);\n'
+        '    response.sendRedirect("/\\\\" + f);\n'
+        '    response.sendRedirect("https://example.com" + f);\n'
+        '    response.sendRedirect("http" + f);\n'
+        '    response.sendRedirect("/login?next=" + f);\n'
+        '    response.sendRedirect("/files/" + f);\n'
+        '    response.sendRedirect("https://example.com/" + f);\n'
+        '    response.sendRedirect("/" + owner + "/x?q=" + f);\n'
+        '    response.sendRedirect("page_" + f);\n'
+        "  }\n"
+        "}\n"
+    )
+    # Bốn dòng đầu thì giá trị bẩn còn chọn được máy chủ ( `//evil`, `/\evil`,
+    # `example.com.evil`, `https://evil` ); các dòng sau thì không.
+    assert hits(source, JAVA) == [
+        ("FSB-REDIR-001", 4),
+        ("FSB-REDIR-001", 5),
+        ("FSB-REDIR-001", 6),
+        ("FSB-REDIR-001", 7),
+    ]
+
+
+def test_java_constant_names_and_uri_of_the_own_request():
+    source = (
+        "class A {\n"
+        "  void a(HttpServletRequest request, SQLiteDatabase db, String where) throws Exception {\n"
+        '    db.rawQuery("SELECT " + LocalStore.FOLDER_COLS + " FROM folders", null);\n'
+        '    db.rawQuery("SELECT * FROM t WHERE " + where, null);\n'
+        "    URI uri = URI.create(request.getRequestURI());\n"
+        "  }\n"
+        "}\n"
+    )
+    assert hits(source, JAVA) == [("FSB-SQL-002", 4)]
+
+
 # -------------------------------------------------------------------------- C#
 
 
@@ -129,6 +169,19 @@ def test_csharp_cmd_wrapper_is_a_shell_command():
         "}\n"
     )
     assert hits(source, CSHARP) == [("FSB-CMD-001", 4)]
+
+
+def test_csharp_interpolated_redirect_with_a_fixed_path():
+    source = (
+        "public class C : Controller {\n"
+        "  [HttpGet]\n"
+        "  public IActionResult Get(string id) {\n"
+        '    if (a) return Redirect($"/items/{id}");\n'
+        '    return Redirect($"{id}");\n'
+        "  }\n"
+        "}\n"
+    )
+    assert hits(source, CSHARP) == [("FSB-REDIR-001", 5)]
 
 
 def test_csharp_from_query_attribute():

@@ -47,6 +47,9 @@ class GenericSink:
     # ... và chỉ khi đối số đầu là luồng phản hồi HTTP ( w, rw ), không phải
     # os.Stderr hay một tệp log.
     first_argument_names: FrozenSet[str] = frozenset()
+    # Chỉ khớp đúng tên trần, không khớp `x.ten`: `evaluate(code)` ở mức script
+    # Groovy là thực thi mã, còn `rule.evaluate(ctx)` là phương thức bất kỳ.
+    exact_names: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,6 +131,19 @@ class LanguageSpec:
     attribute_sources: Dict[str, str] = field(default_factory=dict)
     # `return "redirect:" + url` của Spring MVC là một lệnh chuyển hướng.
     redirect_view_prefix: Optional[str] = None
+    # `def show(id: String) = Action { ... }` của Play: thân hàm bắt đầu bằng một
+    # trong các tên này nghĩa là hàm là action, tham số đến từ router.
+    handler_body_markers: FrozenSet[str] = frozenset()
+    # Directive của Akka HTTP / Pekko gắn giá trị request vào tham số lambda:
+    # `parameter("q") { q => ... }`. Tên -> nhãn nguồn.
+    lambda_sources: Dict[str, str] = field(default_factory=dict)
+    # `sql"SELECT * FROM #$bang"` của Slick: chuỗi mang tiền tố này là chính câu
+    # lệnh SQL, và phần dán nguyên văn trong nó là sink.
+    spliced_sql_prefixes: FrozenSet[str] = frozenset()
+    # `"SELECT " + LocalStore.FOLDER_COLS + " FROM folders"`: tên VIẾT_HOA của
+    # Java/Kotlin/Scala là hằng `static final` / `const val` theo quy ước. Chỉ
+    # bật ở ngôn ngữ mà quy ước này chắc; biến môi trường của shell cũng viết hoa.
+    constant_case_names: bool = False
 
 
 # Ép về số hoặc UUID thì không còn ký tự đặc biệt nào sống sót, ở bất kỳ nhóm
@@ -697,8 +713,6 @@ _JVM_SINKS: Tuple[GenericSink, ...] = (
             "Files.writeString",
             "Files.delete",
             "Files.deleteIfExists",
-            "Files.copy",
-            "Files.move",
             "Source.fromFile",
         ),
         Category.PATH,
@@ -707,10 +721,18 @@ _JVM_SINKS: Tuple[GenericSink, ...] = (
         SINK_FILE_PATH,
     ),
     GenericSink(
+        # Files.copy(luong_vao, dich) / Files.move(nguon, dich): đích ở đối số thứ hai.
+        ("Files.copy", "Files.move"),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+        argument_index=1,
+    ),
+    GenericSink(
         (
             "URL",
             "java.net.URL",
-            "URI.create",
             "HttpGet",
             "HttpPost",
             "HttpPut",
@@ -780,7 +802,7 @@ _JVM_SINKS: Tuple[GenericSink, ...] = (
     ),
     GenericSink(
         # Velocity.evaluate(ctx, writer, tag, template): template ở đối số thứ tư.
-        ("Velocity.evaluate", "velocityEngine.evaluate", "VelocityEngine.evaluate", "engine.evaluate"),
+        ("Velocity.evaluate", "velocityEngine.evaluate", "VelocityEngine.evaluate"),
         Category.TEMPLATE,
         "FSB-TMPL-001",
         "FSB-TMPL-002",
@@ -836,6 +858,12 @@ _JAVA_SOURCES: Dict[str, str] = {
     "req.getInputStream": REQUEST_BODY,
     "req.getReader": REQUEST_BODY,
     "req.getCookies": HTTP_COOKIE,
+}
+
+# Biến môi trường và thuộc tính hệ thống của một dịch vụ là cấu hình do người
+# triển khai đặt, giống os.getenv bên Python: chỉ bật khi người dùng chọn
+# --include-low-signal-sources.
+_JVM_LOW_SIGNAL: Dict[str, str] = {
     "System.getenv": ENVIRONMENT_VARIABLE,
     "System.getProperty": "thuộc tính hệ thống",
 }
@@ -856,6 +884,18 @@ _SPRING_NOT_REQUEST: FrozenSet[str] = frozenset(
         "ModelAttribute",
         "CurrentSecurityContext",
         "Autowired",
+    }
+)
+
+# Annotation kiểm hợp lệ không đổi nơi framework lấy giá trị: `@NotBlank String q`
+# vẫn được gắn từ request. Mọi annotation KHÁC trên tham số nghĩa là một bộ
+# resolver riêng ( @CurrentUser, @AuthenticationPrincipal ) cấp giá trị.
+VALIDATION_ANNOTATIONS: FrozenSet[str] = frozenset(
+    {
+        "Valid", "Validated", "NotNull", "NotBlank", "NotEmpty", "Size", "Pattern",
+        "Email", "Nullable", "NonNull", "Min", "Max", "Length", "Required",
+        "StringLength", "MaxLength", "MinLength", "RegularExpression", "Range",
+        "EmailAddress", "Url",
     }
 )
 
@@ -893,6 +933,36 @@ _JVM_POSTFIX_SANITIZERS: Dict[str, FrozenSet[Category]] = {
 
 _JVM_BUILDERS: FrozenSet[str] = frozenset({"StringBuilder", "StringBuffer", "StringWriter"})
 
+INTENT_DATA = "dữ liệu Intent ( ứng dụng khác gửi được nếu component được export )"
+
+# Android: Intent đến từ bên ngoài ứng dụng khi activity/service/receiver được export.
+_ANDROID_SOURCES: Dict[str, str] = {
+    "intent.getStringExtra": INTENT_DATA,
+    "intent.getStringArrayExtra": INTENT_DATA,
+    "intent.getCharSequenceExtra": INTENT_DATA,
+    "intent.getBundleExtra": INTENT_DATA,
+    "intent.extras": INTENT_DATA,
+    "intent.data": INTENT_DATA,
+    "intent.dataString": INTENT_DATA,
+    "intent.getData": INTENT_DATA,
+    "intent.getDataString": INTENT_DATA,
+    "intent.getExtras": INTENT_DATA,
+    "getIntent.getStringExtra": INTENT_DATA,
+    "getIntent.getData": INTENT_DATA,
+    "getIntent.getDataString": INTENT_DATA,
+    "getIntent.getExtras": INTENT_DATA,
+}
+
+# Spring WebFlux ( handler kiểu hàm ).
+_WEBFLUX_SOURCES: Dict[str, str] = {
+    "request.queryParam": QUERY_PARAM,
+    "request.pathVariable": PATH_PARAM,
+    "request.bodyToMono": REQUEST_BODY,
+    "request.formData": FORM_FIELD,
+    "serverRequest.queryParam": QUERY_PARAM,
+    "serverRequest.pathVariable": PATH_PARAM,
+}
+
 _JAVA_ANNOTATIONS: Dict[str, str] = {
     "RequestParam": QUERY_PARAM,
     "PathVariable": PATH_PARAM,
@@ -903,6 +973,9 @@ _JAVA_ANNOTATIONS: Dict[str, str] = {
     "PathParam": PATH_PARAM,
     "FormParam": FORM_FIELD,
     "HeaderParam": HTTP_HEADER,
+    "CookieParam": HTTP_COOKIE,
+    "MatrixParam": PATH_PARAM,
+    "QueryValue": QUERY_PARAM,
 }
 
 _RUBY_SINKS: Tuple[GenericSink, ...] = (
@@ -1142,8 +1215,15 @@ _GO_SOURCES: Dict[str, str] = {
     "req.Body": REQUEST_BODY,
     "req.PostFormValue": FORM_FIELD,
     "chi.URLParam": PATH_PARAM,
+}
+
+# os.Open(os.Args[1]) là đúng chức năng của một công cụ dòng lệnh Go.
+_GO_LOW_SIGNAL: Dict[str, str] = {
     "os.Args": COMMAND_LINE_ARG,
     "os.Getenv": ENVIRONMENT_VARIABLE,
+    "os.LookupEnv": ENVIRONMENT_VARIABLE,
+    "flag.Arg": COMMAND_LINE_ARG,
+    "flag.Args": COMMAND_LINE_ARG,
 }
 
 _CSHARP_SINKS: Tuple[GenericSink, ...] = (
@@ -1462,7 +1542,11 @@ _CSHARP_SOURCES: Dict[str, str] = {
     "context.Request.Query": QUERY_PARAM,
     "context.Request.Form": FORM_FIELD,
     "context.Request.Headers": HTTP_HEADER,
+}
+
+_CSHARP_LOW_SIGNAL: Dict[str, str] = {
     "Environment.GetEnvironmentVariable": ENVIRONMENT_VARIABLE,
+    "Environment.GetCommandLineArgs": COMMAND_LINE_ARG,
 }
 
 _SHELL_SINKS: Tuple[GenericSink, ...] = (
@@ -1962,9 +2046,10 @@ SPECS: Dict[str, LanguageSpec] = {
     JAVA: LanguageSpec(
         language=JAVA,
         lexer=_JAVA_LEXER,
-        sources=_JAVA_SOURCES,
+        sources={**_JAVA_SOURCES, **_ANDROID_SOURCES, **_WEBFLUX_SOURCES},
         sinks=_JAVA_SINKS + _JVM_SINKS,
         sanitizers=_JVM_SANITIZERS,
+        low_signal_sources=_JVM_LOW_SIGNAL,
         annotation_sources=_JAVA_ANNOTATIONS,
         receiver_propagators=frozenset({"append", "insert"}),
         builder_constructors=_JVM_BUILDERS,
@@ -1973,6 +2058,7 @@ SPECS: Dict[str, LanguageSpec] = {
         handler_parameter_exclusions=_SPRING_NOT_REQUEST,
         redirect_view_prefix="redirect:",
         value_accessors=frozenset({"toString"}),
+        constant_case_names=True,
     ),
     RUBY: LanguageSpec(
         language=RUBY,
@@ -2011,6 +2097,7 @@ SPECS: Dict[str, LanguageSpec] = {
         declaration_keywords=frozenset({"var", "const"}),
         assignment_operators=("=", ":=", "+="),
         receiver_propagators=frozenset({"WriteString"}),
+        low_signal_sources=_GO_LOW_SIGNAL,
         value_accessors=frozenset({"String"}),
     ),
     CSHARP: LanguageSpec(
@@ -2039,6 +2126,7 @@ SPECS: Dict[str, LanguageSpec] = {
         builder_constructors=frozenset({"StringBuilder"}),
         value_accessors=frozenset({"ToString"}),
         attribute_sources=_CSHARP_ATTRIBUTE_SOURCES,
+        low_signal_sources=_CSHARP_LOW_SIGNAL,
         handler_annotations=_CSHARP_HANDLERS,
         handler_parameter_types=frozenset({"string", "String"}),
         handler_parameter_exclusions=frozenset({"FromServices", "FromKeyedServices"}),

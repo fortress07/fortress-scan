@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Tuple
 
 from ...core.budget import Budget
@@ -24,6 +24,12 @@ class Token:
     in_string: bool = False
     interpolated: bool = False
     quote: str = ""
+    # Tiền tố dính liền chuỗi ( `sql` của `sql"..."` ): quyết định chuỗi này là
+    # một câu lệnh tham số hoá chứ không phải chữ thường.
+    prefix: str = ""
+    # Vùng nội suy ( từ dấu mở tới hết dấu đóng ) trong thân chuỗi chứa nó:
+    # phần chữ trước vùng này là phần cố định của giá trị.
+    span: Tuple[int, int] = (-1, -1)
 
 
 @dataclass(frozen=True)
@@ -55,6 +61,9 @@ class LexerProfile:
     string_prefixes: Tuple[Tuple[str, bool], ...] = ()
     # Scala: chuỗi không có tiền tố thì `$x` chỉ là chữ.
     prefix_only_interpolation: bool = False
+    # `sql"... #$cot"` của Slick: trong chuỗi tham số hoá, dấu này DÁN giá trị
+    # nguyên văn vào câu lệnh, tức là đúng chỗ còn lại của SQL injection.
+    splice_marker: str = ""
     multichar_operators: Tuple[str, ...] = (
         "===",
         "!==",
@@ -106,6 +115,7 @@ class Tokenizer:
         # sai một ký tự so với lời gọi thật.
         self._column = 0
         self._tokens: List[Token] = []
+        self._prefix = ""
 
     def run(self) -> List[Token]:
         while self._index < self._length:
@@ -138,16 +148,18 @@ class Tokenizer:
         return self._tokens
 
     def _emit(self, kind: str, text: str, in_string: bool = False, quote: str = "") -> None:
-        self._tokens.append(
-            Token(
-                kind=kind,
-                text=text,
-                line=self._line,
-                column=self._column,
-                in_string=in_string,
-                quote=quote,
-            )
+        token = Token(
+            kind=kind,
+            text=text,
+            line=self._line,
+            column=self._column,
+            in_string=in_string,
+            quote=quote,
         )
+        if kind == STRING and self._prefix:
+            token = replace(token, prefix=self._prefix)
+            self._prefix = ""
+        self._tokens.append(token)
 
     def _advance(self, count: int) -> None:
         self._index += count
@@ -279,6 +291,7 @@ class Tokenizer:
                 for prefix, interpolating in profile.string_prefixes:
                     if last.text == prefix:
                         self._tokens.pop()
+                        self._prefix = prefix
                         return default, default and interpolating
         plain = default and not profile.prefix_only_interpolation
         return plain, plain
@@ -287,7 +300,7 @@ class Tokenizer:
         for opener, interpolating in self._profile.triple_quotes:
             if not self._source.startswith(opener, self._index):
                 continue
-            _, interpolating = self._prefix_interpolates(interpolating)
+            syntax, emit = self._prefix_interpolates(interpolating)
             end = self._source.find(opener, self._index + len(opener))
             stop = self._length if end == -1 else end + len(opener)
             # Swift/Kotlin cho phép thêm nháy sát dấu đóng: `""""a""""`.
@@ -297,8 +310,10 @@ class Tokenizer:
             body = self._source[self._index + len(opener) : body_end][:_MAX_STRING_LENGTH]
             segment = self._source[self._index : stop]
             self._emit(STRING, body, quote=opener[0])
-            if interpolating:
+            if emit:
                 self._scan_interpolations(body)
+            elif syntax:
+                self._scan_splices(body)
             self._index = stop
             self._advance_over(segment)
             return True
@@ -354,6 +369,8 @@ class Tokenizer:
         self._emit(STRING, body, quote=char)
         if emit and not raw:
             self._scan_interpolations(body)
+        elif interpolating and not raw:
+            self._scan_splices(body)
         self._index = cursor
         self._advance_over(segment)
         return True
@@ -431,10 +448,35 @@ class Tokenizer:
                 if end == -1:
                     break
                 inner = body[position + len(opener) : end]
-                self._emit_inner(inner)
+                self._emit_inner(inner, (position, end + len(closer)))
                 start = end + len(closer)
         if profile.dollar_interpolation:
             self._scan_dollar(body)
+
+    def _scan_splices(self, body: str) -> None:
+        """Chuỗi tham số hoá chỉ còn dấu dán nguyên văn ( `#$x`, `#${x}` ) là nguy hiểm."""
+        marker = self._profile.splice_marker
+        if not marker or self._depth >= _MAX_INTERPOLATION_DEPTH:
+            return
+        start = 0
+        while True:
+            position = body.find(marker, start)
+            if position == -1:
+                return
+            cursor = position + len(marker)
+            if cursor < len(body) and body[cursor] == "{":
+                end = _matching_index(body, cursor + 1, "{", "}")
+                if end == -1:
+                    return
+                self._emit_inner(body[cursor + 1 : end], (position, end + 1))
+                start = end + 1
+                continue
+            end = cursor
+            while end < len(body) and _is_identifier_part(body[end], self._profile):
+                end += 1
+            if end > cursor:
+                self._emit_expansion(body[cursor:end], (position, end))
+            start = max(end, cursor)
 
     def _scan_dollar(self, body: str) -> None:
         profile = self._profile
@@ -454,19 +496,19 @@ class Tokenizer:
                     return
                 # `${...}` đã được phát ở vòng interpolation_markers nếu có khai.
                 if ("${", "}") not in profile.interpolation_markers:
-                    self._emit_inner(body[position + 2 : end])
+                    self._emit_inner(body[position + 2 : end], (position, end + 1))
                 index = end + 1
                 continue
             if following == "(":
                 end = _matching_index(body, position + 2, "(", ")")
                 if end == -1:
                     return
-                self._emit_inner(body[position + 2 : end])
+                self._emit_inner(body[position + 2 : end], (position, end + 1))
                 index = end + 1
                 continue
             if following.isdigit() or following in "@*#?":
                 if not profile.dollar_bare_name:
-                    self._emit_expansion(body[position : position + 2])
+                    self._emit_expansion(body[position : position + 2], (position, position + 2))
                 index = position + 2
                 continue
             if _is_identifier_start(following, self._profile) and not (profile.dollar_bare_name and following == "$"):
@@ -474,12 +516,12 @@ class Tokenizer:
                 while cursor < length and _is_identifier_part(body[cursor], self._profile):
                     cursor += 1
                 start = position + 1 if profile.dollar_bare_name else position
-                self._emit_expansion(body[start:cursor])
+                self._emit_expansion(body[start:cursor], (position, cursor))
                 index = cursor
                 continue
             index = position + 1
 
-    def _emit_expansion(self, text: str) -> None:
+    def _emit_expansion(self, text: str, span: Tuple[int, int] = (-1, -1)) -> None:
         self._tokens.append(
             Token(
                 kind=IDENT,
@@ -488,10 +530,11 @@ class Tokenizer:
                 column=self._column,
                 in_string=True,
                 interpolated=True,
+                span=span,
             )
         )
 
-    def _emit_inner(self, inner: str) -> None:
+    def _emit_inner(self, inner: str, span: Tuple[int, int] = (-1, -1)) -> None:
         if not inner.strip():
             return
         nested = Tokenizer(inner, self._profile, self._budget, self._depth + 1)
@@ -508,6 +551,7 @@ class Tokenizer:
                     column=self._column,
                     in_string=True,
                     interpolated=True,
+                    span=span,
                 )
             )
 

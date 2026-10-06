@@ -34,8 +34,10 @@ from ..languages import (
     CPP,
     CSHARP,
     GO,
+    GROOVY,
     JAVA,
     JAVASCRIPT,
+    KOTLIN,
     LUA,
     MANIFEST,
     OBJC,
@@ -45,6 +47,7 @@ from ..languages import (
     PYTHON,
     RUBY,
     RUST,
+    SCALA,
     SHELL,
     TYPESCRIPT,
     WORKFLOW,
@@ -122,6 +125,9 @@ _LINE_COMMENTS: Dict[str, Tuple[str, ...]] = {
     C: ("//",),
     CPP: ("//",),
     OBJC: ("//",),
+    KOTLIN: ("//",),
+    SCALA: ("//",),
+    GROOVY: ("//",),
 }
 
 # Trong shell, `#` chỉ mở chú thích khi nó BẮT ĐẦU một từ. `curl http://x/#frag`
@@ -162,6 +168,9 @@ _BLOCK_COMMENTS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     C: (_C_COMMENT,),
     CPP: (_C_COMMENT,),
     OBJC: (_C_COMMENT,),
+    KOTLIN: (_C_COMMENT,),
+    SCALA: (_C_COMMENT,),
+    GROOVY: (_C_COMMENT,),
 }
 
 # Ngôn ngữ lạ thì nhận cả hai dấu phổ biến: thà nhận dư một dấu mở chú thích còn
@@ -208,6 +217,11 @@ _SPANNING_QUOTES: Dict[str, FrozenSet[str]] = {
     C: frozenset(),
     CPP: frozenset('"'),
     OBJC: frozenset(),
+    # Chuỗi một dòng của Kotlin, Scala, Groovy phải đóng trong dòng; dạng nhiều
+    # dòng là ba nháy, đã có trong danh sách ba nháy chung.
+    KOTLIN: frozenset(),
+    SCALA: frozenset(),
+    GROOVY: frozenset(),
 }
 _DEFAULT_SPANNING_QUOTES: FrozenSet[str] = frozenset("`")
 
@@ -261,6 +275,8 @@ _HEREDOC_OPENERS: Dict[str, "re.Pattern[str]"] = {
 _BRACKET_STRINGS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     LUA: (("[==[", "]==]"), ("[=[", "]=]"), ("[[", "]]")),
     POWERSHELL: (('@"', '"@'), ("@'", "'@")),
+    # Chuỗi dollar-slashy của Groovy bắc qua nhiều dòng.
+    GROOVY: (("$/", "/$"),),
 }
 
 # Dạng thứ năm, và là dạng duy nhất mà NGƯỜI VIẾT tự chọn lấy dấu đóng:

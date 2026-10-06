@@ -11,7 +11,7 @@ from ...core.registry import get_rule
 from ..base import Analyzer, AnalysisUnit, FindingBuilder
 from ..python.specs import looks_like_sql
 from .lexer import IDENT, NEWLINE, OP, STRING, Token, tokenize
-from .profiles import REQUEST_BOUND_PARAMETER, GenericSink, LanguageSpec, spec_for
+from .profiles import REQUEST_BOUND_PARAMETER, VALIDATION_ANNOTATIONS, GenericSink, LanguageSpec, spec_for
 
 _MAX_STATEMENTS = 20000
 _MAX_STATEMENT_TOKENS = 600
@@ -199,8 +199,10 @@ class _Analysis:
     def _seed_annotations(self, tokens: Sequence[Token]) -> None:
         if self.spec.conn_param_patterns:
             self._seed_conn_patterns(tokens)
-        if self.spec.attribute_sources or self.spec.handler_annotations:
+        if self.spec.attribute_sources or self.spec.handler_annotations or self.spec.handler_body_markers:
             self._seed_handlers(tokens)
+        if self.spec.lambda_sources:
+            self._seed_lambda_sources(tokens)
         if not self.spec.annotation_sources:
             return
         index = 0
@@ -230,6 +232,15 @@ class _Analysis:
         spec = self.spec
         limit = len(tokens)
         for index, token in enumerate(tokens):
+            if (
+                spec.handler_body_markers
+                and token.kind == IDENT
+                and token.text == "def"
+                and not token.in_string
+                and _returns_action(tokens, index, spec)
+            ):
+                self._seed_handler_parameters(tokens, index + 1)
+                continue
             if token.kind != OP or token.in_string or index + 1 >= limit:
                 continue
             name_token = tokens[index + 1]
@@ -290,6 +301,49 @@ class _Analysis:
                     tokens, cursor + 1, name, TaintMark(REQUEST_BOUND_PARAMETER, parameter[0].line, Confidence.HIGH)
                 )
 
+    def _seed_lambda_sources(self, tokens: Sequence[Token]) -> None:
+        """`parameter("q") { q => ... }`, `path("u" / Segment) { id => ... }`.
+
+        Directive của Akka HTTP / Pekko đưa giá trị request vào tham số của
+        lambda ngay sau nó; tên chỉ sống trong khối `{ ... }` đó.
+        """
+        limit = len(tokens)
+        for index, token in enumerate(tokens):
+            if token.kind != IDENT or token.in_string:
+                continue
+            label = self.spec.lambda_sources.get(token.text)
+            if label is None or index + 1 >= limit or tokens[index + 1].text != "(":
+                continue
+            if index > 0 and tokens[index - 1].kind == OP and tokens[index - 1].text == ".":
+                continue
+            cursor = index + 1
+            groups: List[Token] = []
+            while cursor < limit and tokens[cursor].kind == OP and tokens[cursor].text == "(":
+                after = _group_end(tokens, cursor)
+                if after is None:
+                    break
+                groups.extend(tokens[cursor:after])
+                cursor = after
+            if token.text in ("path", "pathPrefix", "pathSuffix") and not any(
+                item.kind == IDENT and item.text in _PATH_TEXT_MATCHERS for item in groups
+            ):
+                # path(IntNumber) / path("health"): không có đoạn chữ tự do nào.
+                continue
+            while cursor < limit and tokens[cursor].kind == NEWLINE:
+                cursor += 1
+            if cursor >= limit or tokens[cursor].text != "{":
+                continue
+            close = _group_end(tokens, cursor)
+            if close is None:
+                continue
+            names = _lambda_parameters(tokens, cursor + 1, close)
+            if not names:
+                continue
+            start = (tokens[cursor].line, tokens[cursor].column)
+            end = (tokens[close - 1].line, tokens[close - 1].column)
+            for name in names:
+                self.scoped.append((start, end, name, TaintMark(label, token.line, Confidence.HIGH)))
+
     def _seed_conn_patterns(self, tokens: Sequence[Token]) -> None:
         """`def show(conn, %{"id" => id, "q" => q})`: id, q là tham số request.
 
@@ -332,6 +386,8 @@ class _Analysis:
             self._analyze_extraction(statement)
         if self.spec.redirect_view_prefix:
             self._analyze_redirect_view(statement)
+        if self.spec.spliced_sql_prefixes:
+            self._analyze_sql_splices(statement)
         self._analyze_backticks(statement)
 
     def _analyze_assignment(self, statement: Sequence[Token]) -> None:
@@ -379,7 +435,7 @@ class _Analysis:
                 return
             else:
                 self.tainted.pop(target, None)
-                literal = _is_literal_choice(right) or _is_builder_literal(right, self.spec)
+                literal = _is_literal_choice(right, _member_dot(self.spec)) or _is_builder_literal(right, self.spec)
                 if self._is_neutralized(right) or (literal and (not compound or target in self.sanitized)):
                     self.sanitized.add(target)
                 else:
@@ -409,7 +465,9 @@ class _Analysis:
                     self._apply_outputs(chain, statement[index], arguments)
                 if self.spec.receiver_propagators:
                     self._propagate_to_receiver(chain, statement, index, arguments)
-            elif chain in self.spec.bare_call_names:
+            elif chain in self.spec.bare_call_names and not _starts_assignment_or_access(
+                statement, next_index, self.spec
+            ):
                 self._check_call(
                     chain, statement[index], [list(statement[next_index:])], chain_end
                 )
@@ -435,8 +493,14 @@ class _Analysis:
                 else [token for token in argument if not token.interpolated]
                 for argument in arguments
             ]
+        dynamic_rule = sink.dynamic_rule
         if sink.require_sql:
             selected = _select_sql_argument(arguments, sink, chain, self.budget.spend, self._mentions_sql)
+            if selected and not self._mentions_sql(selected):
+                # executeQuery(query) với `query` là tham số không rõ gốc: không
+                # thấy câu SQL nào được ghép ở đây, nên "ghép bằng định dạng
+                # chuỗi" là không chứng minh được. Vẫn báo nếu giá trị là của người ngoài.
+                dynamic_rule = None
         elif sink.program_position:
             wrapped = _shell_wrapper_argument(arguments)
             if wrapped is not None:
@@ -461,9 +525,11 @@ class _Analysis:
         if not selected:
             return
         mark = self._taint_of(selected)
+        if sink.category is Category.REDIRECT and mark is not None and self._fixed_origin(selected):
+            return
         self._report_expression(
             rule_id=sink.tainted_rule,
-            dynamic_rule=sink.dynamic_rule,
+            dynamic_rule=dynamic_rule,
             description=sink.description,
             symbol=chain,
             tokens=selected,
@@ -559,10 +625,28 @@ class _Analysis:
         if mark is not None:
             self.tainted[root] = mark
             self.sanitized.discard(root)
-        elif not _is_literal(tokens) and not self._is_neutralized(tokens):
+        elif not _is_literal(tokens, _member_dot(self.spec)) and not self._is_neutralized(tokens):
             self.sanitized.discard(root)
         if self._mentions_sql(tokens):
             self.sql_like.add(root)
+
+    def _analyze_sql_splices(self, statement: Sequence[Token]) -> None:
+        """`sql"SELECT * FROM #$bang"`: `$x` thường là tham số bind, `#$x` thì dán thẳng."""
+        for index, token in enumerate(statement):
+            if token.kind != STRING or token.in_string or token.prefix not in self.spec.spliced_sql_prefixes:
+                continue
+            spliced = _following_interpolations(statement, index)
+            if not spliced:
+                continue
+            self._report_expression(
+                rule_id="FSB-SQL-001",
+                dynamic_rule="FSB-SQL-002",
+                description="phần dán nguyên văn `#$` của câu SQL",
+                symbol=token.prefix,
+                tokens=spliced,
+                mark=self._taint_of(spliced),
+                anchor=token,
+            )
 
     def _analyze_redirect_view(self, statement: Sequence[Token]) -> None:
         """`return "redirect:" + url` / `new ModelAndView("redirect:" + url)` của Spring."""
@@ -574,7 +658,7 @@ class _Analysis:
             if not tail:
                 return
             mark = self._taint_of(tail)
-            if mark is None:
+            if mark is None or self._fixed_origin(statement[index:], prefix):
                 return
             self._report_expression(
                 rule_id="FSB-REDIR-001",
@@ -586,6 +670,80 @@ class _Analysis:
                 anchor=token,
             )
             return
+
+    def _fixed_origin(self, tokens: Sequence[Token], strip: str = "") -> bool:
+        """Phần chữ cố định trước giá trị bẩn đã chốt máy chủ đích chưa.
+
+        `"/signin?redirect=" + urlEncode(uri)`, `s"/${owner}/pulls?q=${q}"`:
+        giá trị bẩn chỉ nằm sau một đường dẫn tương đối hay trong query, nên nó
+        không đổi được nơi trình duyệt tới. Còn `"/" + x` thì x = `/evil.com`
+        thành `//evil.com`, `"https://" + x` thì x chọn luôn máy chủ.
+        """
+        text = ""
+        head: Optional[str] = None
+        for kind in self._url_pieces(tokens):
+            if kind == _PIECE_TAINTED:
+                break
+            if kind == _PIECE_VALUE:
+                # Giá trị không bẩn nhưng cũng không biết trước: chữ trước nó là
+                # phần duy nhất chắc chắn cố định.
+                if head is None:
+                    head = text
+                text += "\0"
+                continue
+            text += kind
+        else:
+            return False
+        if head is None:
+            head = text
+        if strip and text.startswith(strip):
+            text = text[len(strip) :]
+            head = head[len(strip) :] if head.startswith(strip) else ""
+        if "?" in text or "#" in text:
+            # Mọi thứ sau `?` / `#` đầu tiên là query hay fragment.
+            return True
+        return _pins_origin(head)
+
+    def _url_pieces(self, tokens: Sequence[Token]) -> List[str]:
+        """Các mảnh của một phép nối chuỗi: chữ, _PIECE_VALUE hoặc _PIECE_TAINTED."""
+        pieces: List[str] = []
+        for operand in _concatenation_operands(tokens):
+            if len(operand) > 1 and operand[0].kind == OP and operand[0].text in _STRING_MARKERS:
+                # `$"/items/{id}"` của C#: dấu `$` / `@` chỉ là kiểu chuỗi.
+                if operand[1].kind == STRING:
+                    operand = operand[1:]
+            first = operand[0]
+            if first.kind == STRING and not first.in_string and all(item.in_string for item in operand[1:]):
+                pieces.extend(self._string_pieces(first.text, operand[1:]))
+            else:
+                pieces.append(self._piece_kind(operand))
+        return pieces
+
+    def _string_pieces(self, body: str, inner: Sequence[Token]) -> List[str]:
+        groups: Dict[Tuple[int, int], List[Token]] = {}
+        for token in inner:
+            if token.span[0] < 0:
+                return [_PIECE_TAINTED]
+            groups.setdefault(token.span, []).append(token)
+        pieces: List[str] = []
+        cursor = 0
+        for (start, end), group in sorted(groups.items()):
+            if start < cursor:
+                # Vùng lồng trong vùng trước đó: chỉ cần biết nó có bẩn không.
+                if self._piece_kind(group) == _PIECE_TAINTED:
+                    pieces.append(_PIECE_TAINTED)
+                continue
+            pieces.append(body[cursor:start])
+            pieces.append(self._piece_kind(group))
+            cursor = end
+        pieces.append(body[cursor:])
+        return pieces
+
+    def _piece_kind(self, tokens: Sequence[Token]) -> str:
+        mark = self._taint_of(tokens)
+        if mark is not None and mark.active_for(Category.REDIRECT):
+            return _PIECE_TAINTED
+        return _PIECE_VALUE
 
     def _analyze_extraction(self, statement: Sequence[Token]) -> None:
         """std::cin >> name >> age: mọi vế sau >> nhận dữ liệu nhập."""
@@ -774,7 +932,7 @@ class _Analysis:
                 ),
             )
             return
-        if dynamic_rule is None or _is_literal(tokens) or self._is_neutralized(tokens):
+        if dynamic_rule is None or _is_literal(tokens, _member_dot(self.spec)) or self._is_neutralized(tokens):
             return
         self.builder.add(
             rule_id=dynamic_rule,
@@ -919,6 +1077,10 @@ class _Analysis:
                 chain.rsplit(".", 1)[0] if "." in chain and chain.rsplit(".", 1)[1] in self.spec.value_accessors else chain
                 for chain in chains
             ]
+        if self.spec.constant_case_names:
+            chains = [chain for chain in chains if not _CONSTANT_NAME.match(chain.rsplit(".", 1)[-1])]
+            if not chains:
+                return True
         return all(chain in self.sanitized for chain in chains)
 
     def _chains(self, tokens: Sequence[Token]) -> List[str]:
@@ -927,7 +1089,8 @@ class _Analysis:
         limit = len(tokens)
         while index < limit:
             chain, next_index = _read_chain(tokens, index, self.spec)
-            if chain is not None:
+            # `"...".trimIndent()`: phương thức của chính literal không phải một giá trị.
+            if chain is not None and not (_member_dot(self.spec) and _method_on_literal(tokens, index)):
                 found.append(chain)
             index = max(next_index if chain else index + 1, index + 1)
         return found
@@ -1050,9 +1213,13 @@ def _read_chain(
     if index >= limit or tokens[index].kind != IDENT:
         return None, index
     parts = [tokens[index].text]
+    region = tokens[index].in_string
     cursor = index + 1
     while cursor + 1 < limit:
         separator = tokens[cursor]
+        if separator.in_string != region:
+            # `"... $x".trim()`: chuỗi truy cập không đi xuyên qua dấu đóng chuỗi.
+            break
         if separator.kind == OP and separator.text == "(" and cursor + 1 < limit:
             if tokens[cursor + 1].kind == OP and tokens[cursor + 1].text == ")":
                 if (
@@ -1330,7 +1497,7 @@ def _postfix_categories(tokens: Sequence[Token], position: int, spec: LanguageSp
 
 def _handler_parameter_name(parameter: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
     """Tên của một tham số kiểu chuỗi không mang annotation loại trừ."""
-    tokens = [token for token in parameter if not token.in_string]
+    tokens = [token for token in parameter if not token.in_string and token.kind != NEWLINE]
     if not tokens:
         return None
     cursor = 0
@@ -1338,9 +1505,9 @@ def _handler_parameter_name(parameter: Sequence[Token], spec: LanguageSpec) -> O
         token = tokens[cursor]
         if token.kind == OP and token.text in ("@", "[") and cursor + 1 < len(tokens):
             annotation = tokens[cursor + 1].text
-            if annotation in spec.handler_parameter_exclusions:
-                return None
-            if annotation in spec.annotation_sources or annotation in spec.attribute_sources:
+            if annotation not in VALIDATION_ANNOTATIONS:
+                # Annotation nguồn đã được gắn riêng; annotation khác nghĩa là
+                # giá trị đến từ một resolver riêng, không phải từ request.
                 return None
             if token.text == "[":
                 cursor = _group_end(tokens, cursor) or len(tokens)
@@ -1433,9 +1600,18 @@ def _body_span(
         cursor += 1
     if cursor >= limit or tokens[cursor].text != ")":
         return None
-    # Kiểu trả về, `throws X`, `where T : ...` đứng giữa `)` và `{`.
+    # Kiểu trả về, `throws X`, `where T : ...` đứng giữa `)` và `{`. Sau dấu `=`
+    # ( thân dạng biểu thức của Kotlin/Scala, `= Action {` của Play ) thì hết
+    # dòng là hết thân, trừ khi dòng kết thúc bằng chính dấu `=`.
+    expression = False
+    previous: Optional[Token] = None
     for brace in range(cursor + 1, min(limit, cursor + 40)):
         token = tokens[brace]
+        if token.kind == NEWLINE:
+            if expression and not (previous is not None and previous.kind == OP and previous.text == "="):
+                return None
+            continue
+        previous = token
         if token.kind != OP or token.in_string:
             continue
         if token.text == "{":
@@ -1444,9 +1620,70 @@ def _body_span(
                 return None
             closing = tokens[after - 1]
             return (token.line, token.column), (closing.line, closing.column)
-        if token.text in (";", "=", "}", "=>"):
+        if token.text == "=":
+            expression = True
+            continue
+        if token.text in (";", "}", "=>"):
             return None
     return None
+
+
+_PATH_TEXT_MATCHERS = frozenset({"Segment", "Segments", "Remaining", "RemainingPath"})
+
+
+def _lambda_parameters(tokens: Sequence[Token], start: int, stop: int) -> List[str]:
+    """Tên tham số ở đầu khối `{ a => ...}`, `{ (a, b) => ...}`, `{ case (a, b) => ...}`."""
+    cursor = start
+    while cursor < stop and tokens[cursor].kind == NEWLINE:
+        cursor += 1
+    names: List[str] = []
+    seen_arrow = False
+    for index in range(cursor, min(stop, cursor + 24)):
+        token = tokens[index]
+        if token.kind == NEWLINE:
+            break
+        if token.kind == OP and token.text == "=>":
+            seen_arrow = True
+            break
+        if token.kind == IDENT and token.text not in ("case", "implicit"):
+            # `id: String` -> chỉ lấy tên, bỏ kiểu đứng sau `:`.
+            if index > cursor and tokens[index - 1].kind == OP and tokens[index - 1].text == ":":
+                continue
+            names.append(token.text)
+        elif token.kind == OP and token.text not in ("(", ")", ",", ":"):
+            return []
+    return names if seen_arrow else []
+
+
+def _returns_action(tokens: Sequence[Token], index: int, spec: LanguageSpec) -> bool:
+    """`def show(id: String) = Action ...` / `: Action[AnyContent] = Action.async {`."""
+    limit = len(tokens)
+    cursor = index + 2
+    if cursor >= limit or tokens[index + 1].kind != IDENT or tokens[cursor].text != "(":
+        return False
+    after = _group_end(tokens, cursor)
+    if after is None:
+        return False
+    for probe in range(after, min(limit, after + 16)):
+        token = tokens[probe]
+        if token.kind == OP and token.text == "=":
+            following = probe + 1
+            while following < limit and tokens[following].kind == NEWLINE:
+                following += 1
+            return following < limit and tokens[following].text in spec.handler_body_markers
+        if token.kind == OP and token.text in ("{", ";", "}"):
+            return False
+    return False
+
+
+def _starts_assignment_or_access(statement: Sequence[Token], index: int, spec: LanguageSpec) -> bool:
+    """`sh = x`, `sh.foo`: tên trùng với lệnh bare-call nhưng không phải lời gọi."""
+    if index >= len(statement):
+        return True
+    token = statement[index]
+    if token.kind != OP or token.in_string:
+        return False
+    return token.text in spec.assignment_operators or token.text in spec.chain_separators or token.text in (")", ",", "]")
 
 
 def _lone_name(argument: Sequence[Token]) -> Optional[str]:
@@ -1479,7 +1716,7 @@ def _is_builder_literal(tokens: Sequence[Token], spec: LanguageSpec) -> bool:
         return False
     if _group_end(items, cursor) != len(items):
         return False
-    return _is_literal(items[cursor + 1 : -1])
+    return _is_literal(items[cursor + 1 : -1], _member_dot(spec))
 
 
 def _canonical_case(tokens: Sequence[Token], spec: LanguageSpec) -> List[Token]:
@@ -1654,7 +1891,7 @@ def _match_sink(chain: str, spec: LanguageSpec, receiver: bool = False) -> Optio
         if sink.receiver != receiver:
             continue
         for name in sink.names:
-            if chain == name or chain.endswith("." + name):
+            if chain == name or (not sink.exact_names and chain.endswith("." + name)):
                 if len(name) > best_length:
                     best = sink
                     best_length = len(name)
@@ -1756,7 +1993,12 @@ def _group_end(tokens: Sequence[Token], opening: int) -> Optional[int]:
     return None
 
 
-def _is_literal_choice(tokens: Sequence[Token]) -> bool:
+def _member_dot(spec: LanguageSpec) -> bool:
+    """`.` là truy cập thành viên, không phải phép nối chuỗi như của PHP / Perl."""
+    return "." in spec.chain_separators
+
+
+def _is_literal_choice(tokens: Sequence[Token], member_dot: bool = False) -> bool:
     """`"a"`, `"a" "b"`, hoặc `cond ? "a" : "b"`: mọi giá trị có thể đều là literal."""
     depth = 0
     for index, token in enumerate(tokens):
@@ -1775,18 +2017,114 @@ def _is_literal_choice(tokens: Sequence[Token]) -> bool:
                 elif item.kind == OP and item.text in ")]":
                     inner -= 1
                 elif item.kind == OP and item.text == ":" and inner == 0:
-                    return _is_literal(branches[:split]) and _is_literal_choice(branches[split + 1 :])
+                    return _is_literal(branches[:split], member_dot) and _is_literal_choice(
+                        branches[split + 1 :], member_dot
+                    )
             return False
-    return bool(tokens) and _is_literal(tokens)
+    return bool(tokens) and _is_literal(tokens, member_dot)
 
 
-def _is_literal(tokens: Sequence[Token]) -> bool:
-    for token in tokens:
+def _is_literal(tokens: Sequence[Token], member_dot: bool = False) -> bool:
+    for index, token in enumerate(tokens):
         if token.interpolated:
             return False
         if token.kind in (IDENT,):
+            # `"""CREATE ...""".trimIndent()`, `"a b".trim().lowercase()`: phương
+            # thức gọi trên chính một literal không đưa giá trị lạ nào vào;
+            # đối số của nó ( nếu có ) vẫn được xét như mọi token khác.
+            if member_dot and _method_on_literal(tokens, index):
+                continue
             return False
     return True
+
+
+def _method_on_literal(tokens: Sequence[Token], index: int, depth: int = 0) -> bool:
+    if depth > 8 or index < 2:
+        return False
+    dot = tokens[index - 1]
+    if dot.kind != OP or dot.text != "." or dot.in_string:
+        return False
+    # Bỏ qua phần nội suy dính sau chuỗi: `"""... $x""".trimIndent()`.
+    cursor = index - 2
+    while cursor > 0 and tokens[cursor].in_string:
+        cursor -= 1
+    receiver = tokens[cursor]
+    if receiver.kind == STRING and not receiver.in_string:
+        return True
+    if receiver.kind == OP and receiver.text == ")" and not receiver.in_string:
+        cursor = index - 2
+        level = 0
+        while cursor >= 0:
+            current = tokens[cursor]
+            if current.kind == OP and not current.in_string:
+                if current.text == ")":
+                    level += 1
+                elif current.text == "(":
+                    level -= 1
+                    if level == 0:
+                        break
+            cursor -= 1
+        if cursor < 1 or tokens[cursor - 1].kind != IDENT:
+            return False
+        return _method_on_literal(tokens, cursor - 1, depth + 1)
+    return False
+
+
+# Hai giá trị không thể là chữ thật của một chuỗi nguồn ( chứa NUL ).
+_PIECE_VALUE = "\0value"
+_PIECE_TAINTED = "\0tainted"
+_STRING_MARKERS = frozenset({"$", "@", "$@", "@$"})
+_ORIGIN_PREFIX = re.compile(r"\A[A-Za-z][A-Za-z0-9+.-]*:[/\\\\]{2}[^/\\\\?#]+[/\\\\?#]")
+_SCHEME_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
+_ASCII_LETTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+_URL_IGNORED = re.compile(r"[\t\n\r]")
+_CONSTANT_NAME = re.compile(r"\A(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[A-Z]{2,}[0-9]*)\Z")
+
+
+def _pins_origin(head: str) -> bool:
+    """`/x/`, `https://host/`, `login?` chốt máy chủ; `/`, `//`, `https://`, `http` thì không."""
+    # Trình duyệt bỏ khoảng trắng và ký tự điều khiển ở đầu, và bỏ tab, xuống
+    # dòng ở bất kỳ đâu trong URL.
+    head = _URL_IGNORED.sub("", head).lstrip("".join(chr(code) for code in range(0x21)))
+    if not head:
+        return False
+    if head[0] in "/\\":
+        # `/\evil.com` cũng được trình duyệt hiểu là `//evil.com`.
+        return len(head) > 1 and head[1] not in "/\\"
+    if _ORIGIN_PREFIX.match(head):
+        return True
+    if head[0] not in _ASCII_LETTERS:
+        return True
+    for char in head:
+        if char == ":":
+            # Đủ scheme nhưng chưa xong máy chủ: `https://`, `https://site.com`.
+            return False
+        if char not in _SCHEME_CHARACTERS:
+            # Đường dẫn tương đối: ký tự này làm phần đầu không còn là scheme.
+            return True
+    # `http` + `s://evil.com`: giá trị bẩn còn viết tiếp được scheme.
+    return False
+
+
+def _concatenation_operands(tokens: Sequence[Token]) -> List[List[Token]]:
+    """Các vế của `a + b + c` ở mức ngoài cùng, dừng ở `,` / `;` / ngoặc đóng thừa."""
+    operands: List[List[Token]] = [[]]
+    depth = 0
+    for token in tokens:
+        if token.kind == OP and not token.in_string:
+            if token.text in ("(", "[", "{"):
+                depth += 1
+            elif token.text in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and token.text in (",", ";"):
+                break
+            elif depth == 0 and token.text == "+":
+                operands.append([])
+                continue
+        operands[-1].append(token)
+    return [operand for operand in operands if operand]
 
 
 def _following_interpolations(statement: Sequence[Token], index: int) -> List[Token]:
