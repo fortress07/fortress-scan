@@ -65,6 +65,10 @@ _REQUEST_MEMBERS: Dict[str, Tuple[Tuple[str, str], ...]] = {
         ("getRequestURI", "đường dẫn của request HTTP"),
         ("getPathInfo", "đường dẫn của request HTTP"),
         ("getPart", "tệp tải lên"),
+        ("getParts", "tệp tải lên"),
+        ("getParameterNames", "tên tham số HTTP"),
+        ("getHeaderNames", "tên header HTTP"),
+        ("getRequestURL", "đường dẫn của request HTTP"),
     ),
     "webrequest": (
         ("getParameter", "tham số truy vấn HTTP"),
@@ -1135,6 +1139,24 @@ class XProject:
                 if parts[1] in package_facts.constants:
                     return package_facts.constants[parts[1]], package_facts.path
         return None
+
+    # ------------------------------------------------------- declared types
+    def declared_type(self, path: str, name: str, function: Optional[FunctionDef]) -> str:
+        """Tên kiểu ngắn của biến `name` ( `Runtime r = ...` -> "Runtime" ), hoặc ""."""
+        facts = self.facts.get(path)
+        if facts is None or not name or "." in name:
+            return ""
+        if facts.language == JAVA:
+            current = facts.classes.get(function.owner) if function is not None and function.owner else None
+            found = self._java_type_of(facts, name, function, current)
+        elif facts.language in JS_FAMILY:
+            found = self._js_var_type(facts, name, function)
+        elif facts.language == GO and function is not None:
+            found = facts.envs.get(function.key, {}).get(name, "")
+        else:
+            found = ""
+        found = found.split("<", 1)[0].lstrip("*&[]")
+        return found.rsplit(".", 1)[-1]
 
     # ---------------------------------------------------------- constants
     def constant(self, path: str, chain: str, function: Optional[FunctionDef]) -> Optional[Tuple[str, str]]:

@@ -499,7 +499,8 @@ class _JavaExtractor:
                 after = s.skip_generic(s.sig(after), function.body_end)
                 while s.is_op(after, "[") and s.is_op(s.sig(after + 1), "]"):
                     after = s.sig(s.sig(after + 1) + 1)
-                if chain and s.is_ident(after) and chain[:1].isupper():
+                # `Foo x` và cả tên đầy đủ `org.acme.Foo x`.
+                if chain and s.is_ident(after) and chain.rsplit(".", 1)[-1][:1].isupper():
                     following = s.sig(after + 1)
                     if s.is_op(following, "=", ";", ":", ","):
                         env.setdefault(s.text(after), chain)

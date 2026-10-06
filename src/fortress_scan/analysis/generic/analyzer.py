@@ -682,7 +682,7 @@ class _Analysis:
                 ):
                     # `V[g].exec(h)`: chuỗi đọc được chỉ là `exec`, nhưng nó là
                     # phương thức của một biểu thức chứ không phải hàm trần.
-                    self._check_call(chain, statement[index], arguments, chain_end)
+                    self._check_call(_through_call(statement, index, chain, self.spec), statement[index], arguments, chain_end)
                 if self.context is not None:
                     self._project_call(chain, statement[index], arguments, statement, next_index)
             elif (
@@ -706,6 +706,13 @@ class _Analysis:
         anchor_end: Optional[Token] = None,
     ) -> None:
         sink = _match_sink(chain, self.spec)
+        if sink is None and self.context is not None and "." in chain:
+            # `Runtime r = Runtime.getRuntime(); r.exec(cmd)`: tên sink viết theo
+            # kiểu, biến nhận lời gọi mang đúng kiểu đó.
+            head, _, method = chain.rpartition(".")
+            type_name = self.context.local_type(head, anchor)
+            if type_name:
+                sink = _match_typed_sink(type_name, method, self.spec)
         if sink is None:
             return
         if self.spec.language in _JS_LANGUAGES and not self._is_process_receiver(chain):
@@ -735,6 +742,9 @@ class _Analysis:
                 )
                 return
             selected = arguments[0] if arguments else ()
+        elif sink.category == Category.MARKUP and len(arguments) > 1 and self.spec.language == "java":
+            # printf/format/write(buf, off, len): đối số nào bẩn cũng ra HTML.
+            selected = [token for argument in arguments for token in argument]
         else:
             position = min(sink.argument_index, max(0, len(arguments) - 1))
             selected = arguments[position] if arguments else ()
@@ -752,6 +762,28 @@ class _Analysis:
             anchor_end=anchor_end,
             confidence=sink.confidence,
         )
+        if (
+            mark is None
+            and self.spec.language == "java"
+            and sink.tainted_rule == "FSB-CMD-001"
+            and chain.endswith("exec")
+            and len(arguments) >= 2
+        ):
+            # Runtime.exec(cmd, envp): biến môi trường do kẻ tấn công đặt
+            # ( LD_PRELOAD, BASH_ENV, hay biến mà script `eval` ) chạy được mã.
+            environment = self._taint_of(arguments[1])
+            if environment is not None:
+                self._report_expression(
+                    rule_id=sink.tainted_rule,
+                    dynamic_rule=None,
+                    description="biến môi trường của tiến trình con ( Runtime.exec envp )",
+                    symbol=chain,
+                    tokens=arguments[1],
+                    mark=environment,
+                    anchor=anchor,
+                    anchor_end=anchor_end,
+                    confidence=Confidence.MEDIUM,
+                )
 
     def _check_receiver(self, chain: str, sink, anchor: Token, anchor_end: Optional[Token]) -> None:
         """Sink không đối số đọc dữ liệu từ chính đối tượng nhận lời gọi.
@@ -1612,7 +1644,7 @@ class _Analysis:
         # Cùng lý do với _sanitizer_ranges: một cái tên do chính tệp này định
         # nghĩa thì không được hưởng quyền miễn trừ của bảng.
         for chain in self._chains(tokens):
-            if chain in self.spec.sanitizers and chain not in self.declared:
+            if _sanitizer_for(chain, self.spec) is not None and chain not in self.declared:
                 return True
         return False
 
@@ -2172,6 +2204,53 @@ def _select_sql_argument(
     return ()
 
 
+def _through_call(statement: Sequence[Token], index: int, chain: str, spec: LanguageSpec) -> str:
+    """`response.getWriter().println` -> `response.getWriter.println` khi `println` trơn không là sink.
+
+    Phương thức gọi trên kết quả của một lời gọi khác chỉ đọc được phần sau dấu
+    chấm cuối; ghép lại tên lời gọi trước đó để bảng sink viết được
+    `getWriter.println` thay vì bắt mọi `println`.
+    """
+    if index < 2 or _match_sink(chain, spec) is not None:
+        return chain
+    dot, close = statement[index - 1], statement[index - 2]
+    if dot.kind != OP or dot.text not in spec.chain_separators or close.kind != OP or close.text != ")":
+        return chain
+    depth = 0
+    cursor = index - 2
+    while cursor >= 0:
+        token = statement[cursor]
+        if token.kind == OP and not token.in_string:
+            if token.text == ")":
+                depth += 1
+            elif token.text == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+        cursor -= 1
+    if cursor <= 0 or statement[cursor - 1].kind != IDENT:
+        return chain
+    start = cursor - 1
+    while (
+        start >= 2
+        and statement[start - 1].kind == OP
+        and statement[start - 1].text in spec.chain_separators
+        and statement[start - 2].kind == IDENT
+    ):
+        start -= 2
+    outer, _ = _read_chain(statement, start, spec)
+    return "%s.%s" % (outer, chain) if outer else chain
+
+
+def _match_typed_sink(type_name: str, method: str, spec: LanguageSpec) -> Optional[GenericSink]:
+    for sink in spec.sinks:
+        for name in sink.names:
+            parts = name.split(".")
+            if len(parts) >= 2 and parts[-1] == method and type_name in parts[:-1]:
+                return sink
+    return None
+
+
 def _match_sink(chain: str, spec: LanguageSpec) -> Optional[GenericSink]:
     best: Optional[GenericSink] = None
     best_length = -1
@@ -2210,7 +2289,7 @@ def _sanitizer_ranges(
             index = cast[1]
             continue
         chain, next_index = _read_chain(tokens, index, spec)
-        categories = spec.sanitizers.get(chain) if chain is not None else None
+        categories = _sanitizer_for(chain, spec) if chain is not None else None
         if categories is not None and chain not in declared:
             if next_index < limit and tokens[next_index].kind == OP:
                 if tokens[next_index].text == "(":
@@ -2220,6 +2299,24 @@ def _sanitizer_ranges(
                     continue
         index = max(next_index if chain else index + 1, index + 1)
     return ranges
+
+
+def _sanitizer_for(chain: str, spec: LanguageSpec) -> Optional[FrozenSet[Category]]:
+    """Tra bảng khử độc theo đuôi của chuỗi truy cập.
+
+    `org.apache.commons.lang.StringEscapeUtils.escapeHtml(x)` phải khớp mục
+    `StringEscapeUtils.escapeHtml`, và `ESAPI.encoder().encodeForHTML(x)` ( đọc
+    thành `ESAPI.encoder.encodeForHTML` ) phải khớp mục `encodeForHTML`.
+    """
+    found = spec.sanitizers.get(chain)
+    if found is not None:
+        return found
+    parts = chain.split(".")
+    for start in range(1, len(parts)):
+        found = spec.sanitizers.get(".".join(parts[start:]))
+        if found is not None:
+            return found
+    return None
 
 
 def _cast_range(

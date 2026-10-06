@@ -148,6 +148,9 @@ class FileContext:
         self._constant_cache[key] = value
         return value
 
+    def local_type(self, name: str, token: Optional[Token]) -> str:
+        return self.project.declared_type(self.path, name, self.function_at(token))
+
     def config_value(self, key: str) -> Optional[Tuple[str, str]]:
         return self.project.config_value(key)
 

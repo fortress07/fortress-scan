@@ -173,3 +173,66 @@ def test_foreach_over_tainted_collection(tmp_path: Path):
         "        }\n"
     )
     assert len(_sql_hits(tmp_path, body)) == 1
+
+
+def _java_findings(tmp_path: Path, files):
+    for name, source in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+    return sorted((f.path, f.line, f.rule_id) for f in scan(str(tmp_path), Config()).findings)
+
+
+def test_sink_matched_through_declared_type_and_call_chain(tmp_path: Path):
+    servlet = (
+        "import javax.servlet.http.*;\n"
+        "public class S extends HttpServlet {\n"
+        "    public void doPost(HttpServletRequest request, HttpServletResponse response) throws Exception {\n"
+        "        String p = request.getParameter(\"p\");\n"
+        "        Runtime r = Runtime.getRuntime();\n"
+        "        r.exec(\"ping \" + p);\n"
+        "        String[] env = {\"FOO=\" + p};\n"
+        "        r.exec(new String[] {\"/bin/report\"}, env);\n"
+        "        response.getWriter().println(\"<p>\" + p);\n"
+        "        response.getWriter().format(java.util.Locale.US, \"%s\", p);\n"
+        "        java.io.PrintWriter out = response.getWriter();\n"
+        "        out.write(org.owasp.esapi.ESAPI.encoder().encodeForHTML(p));\n"
+        "        out.write(org.apache.commons.lang.StringEscapeUtils.escapeHtml(p));\n"
+        "        out.write(p);\n"
+        "    }\n"
+        "}\n"
+    )
+    assert _java_findings(tmp_path, {"S.java": servlet}) == [
+        ("S.java", 6, "FSB-CMD-001"),
+        ("S.java", 8, "FSB-CMD-001"),
+        ("S.java", 9, "FSB-XSS-001"),
+        ("S.java", 10, "FSB-XSS-001"),
+        ("S.java", 14, "FSB-XSS-001"),
+    ]
+
+
+def test_helper_class_named_by_full_package_and_jdbc_call_escape(tmp_path: Path):
+    files = {
+        "app/web/S.java": (
+            "package app.web;\n"
+            "import javax.servlet.http.*;\n"
+            "public class S extends HttpServlet {\n"
+            "    public void doPost(HttpServletRequest request) throws Exception {\n"
+            "        app.util.Wrapper w = new app.util.Wrapper(request);\n"
+            "        String sql = \"{call lookup('\" + w.value(\"id\") + \"')}\";\n"
+            "        java.sql.CallableStatement st = connection.prepareCall(sql);\n"
+            "        st.executeQuery();\n"
+            "    }\n"
+            "}\n"
+        ),
+        "app/util/Wrapper.java": (
+            "package app.util;\n"
+            "import javax.servlet.http.HttpServletRequest;\n"
+            "public class Wrapper {\n"
+            "    private HttpServletRequest request;\n"
+            "    public Wrapper(HttpServletRequest request) { this.request = request; }\n"
+            "    public String value(String name) { return request.getParameter(name); }\n"
+            "}\n"
+        ),
+    }
+    assert _java_findings(tmp_path, files) == [("app/web/S.java", 8, "FSB-SQL-001")]

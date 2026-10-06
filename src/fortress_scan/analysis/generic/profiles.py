@@ -519,6 +519,15 @@ _JAVA_SINKS: Tuple[GenericSink, ...] = (
             "createSQLQuery",
             "queryForObject",
             "queryForList",
+            # JdbcTemplate và lô lệnh JDBC.
+            "queryForRowSet",
+            "queryForMap",
+            "queryForLong",
+            "queryForInt",
+            "query",
+            "update",
+            "batchUpdate",
+            "addBatch",
         ),
         Category.SQL,
         "FSB-SQL-001",
@@ -559,6 +568,20 @@ _JAVA_SINKS: Tuple[GenericSink, ...] = (
         "FSB-XPATH-001",
         None,
         "một biểu thức XPath",
+    ),
+    # Phản hồi của servlet: `response.getWriter().println(x)` ( chuỗi đọc qua
+    # lời gọi ) hoặc `PrintWriter out = response.getWriter(); out.write(x)`
+    # ( theo kiểu khai báo của biến ).
+    GenericSink(
+        tuple(
+            "%s.%s" % (owner, method)
+            for owner in ("getWriter", "PrintWriter", "getOutputStream", "ServletOutputStream")
+            for method in ("print", "println", "write", "printf", "format", "append")
+        ),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        "phản hồi HTML của servlet",
     ),
 )
 
@@ -1284,7 +1307,12 @@ SPECS: Dict[str, LanguageSpec] = {
             "UUID.fromString": _ALL_CATEGORIES,
             "Encode.forHtml": _HTML_ONLY,
             "StringEscapeUtils.escapeHtml4": _HTML_ONLY,
+            "StringEscapeUtils.escapeHtml": _HTML_ONLY,
+            "HtmlUtils.htmlEscape": _HTML_ONLY,
             "ESAPI.encoder": _HTML_ONLY,
+            # `ESAPI.encoder().encodeForHTML(x)`: phần khử nằm ở lời gọi thứ hai.
+            "encodeForHTML": _HTML_ONLY,
+            "encodeForHTMLAttribute": _HTML_ONLY,
         },
         annotation_sources=_JAVA_ANNOTATIONS,
     ),
