@@ -11,7 +11,8 @@ from ..python.specs import looks_like_sql
 from ..xfile.context import PROBE, SUMMARY, FileContext
 from ..xfile.model import Callee, FunctionDef, SinkHit, SourceReturn, Summary
 from ..xfile.stream import TokenIndex
-from .lexer import IDENT, NEWLINE, OP, STRING, Token, tokenize
+from . import folding
+from .lexer import IDENT, NEWLINE, NUMBER, OP, STRING, Token, tokenize
 from .profiles import GenericSink, LanguageSpec, spec_for
 
 if TYPE_CHECKING:
@@ -21,6 +22,8 @@ _MAX_STATEMENTS = 20000
 _MAX_STATEMENT_TOKENS = 600
 # Thân closure dài hơn thế này thì không chạy lại tại mỗi lời gọi.
 _MAX_CLOSURE_TOKENS = 4000
+# Ngôn ngữ mà `= {`, `( {`, `return {` luôn mở một giá trị chứ không mở khối.
+_LITERAL_BRACE_LANGUAGES = frozenset({"javascript", "typescript", "java"})
 _CONTINUATION_OPERATORS = frozenset(
     {"+", "-", "*", "/", ",", "=", "(", "[", "{", "&&", "||", ".", "?", ":", "|", "\\", "+="}
 )
@@ -125,7 +128,7 @@ class GenericAnalyzer(Analyzer):
                 analysis._analyze_statement(body)
             else:
                 analysis._seed_annotations(body)
-                for statement in _split_statements(body)[:_MAX_STATEMENTS]:
+                for statement in _split_statements(body, analysis.literal_braces)[:_MAX_STATEMENTS]:
                     budget.spend()
                     if statement:
                         analysis._analyze_statement(statement)
@@ -145,6 +148,7 @@ class _Analysis:
         self.unit = unit
         self.spec = spec
         self.budget = budget
+        self.literal_braces = spec.language in _LITERAL_BRACE_LANGUAGES
         self.builder = FindingBuilder(unit)
         self.tainted: Dict[str, TaintMark] = {}
         self.sanitized: Set[str] = set()
@@ -160,6 +164,13 @@ class _Analysis:
         # Nguồn thật cuối cùng mà _taint_of nhìn thấy cạnh vết của tham số.
         self._last_source: Optional[TaintMark] = None
         self._index: Optional[TokenIndex] = None
+        # Gập hằng ( chỉ khi có ngữ cảnh dự án ): giá trị hằng của biến cục bộ
+        # theo từng hàm, và kết quả đã tính cho từng khối `{`.
+        self.const_values: Dict[str, Dict[str, object]] = {}
+        self._dead_braces: Dict[int, bool] = {}
+        self._switches: Dict[int, List[object]] = {}
+        # Tập hợp cục bộ mô phỏng được: map theo khóa hằng, list theo chỉ số hằng.
+        self.collections: Dict[str, "_Collection"] = {}
 
     def _in_conditional(self, token: Token) -> bool:
         index = self.context.index if self.context is not None else self._index
@@ -177,7 +188,7 @@ class _Analysis:
                 self.unit.relative_path
             ).items():
                 self.tainted.setdefault(name, TaintMark(label, line, Confidence.HIGH))
-        statements = _split_statements(tokens)
+        statements = _split_statements(tokens, self.literal_braces)
         for statement in statements[:_MAX_STATEMENTS]:
             self.budget.spend()
             if not statement:
@@ -258,6 +269,8 @@ class _Analysis:
             self._analyze_shell_statement(statement)
             return
         if self.context is not None:
+            if self._dead(statement):
+                return
             self._track_callbacks(statement)
             if statement[0].kind == IDENT and statement[0].text == "return":
                 if self._returns_from_current(statement[0]):
@@ -266,6 +279,298 @@ class _Analysis:
         self._analyze_assignment(statement)
         self._analyze_calls(statement)
         self._analyze_backticks(statement)
+
+    # ------------------------------------------------------------------
+    # Nhánh chết: điều kiện gập được thành hằng.
+    # ------------------------------------------------------------------
+    def _consts(self, token: Token) -> Optional[Dict[str, object]]:
+        context = self.context
+        if context is None:
+            return None
+        function = context.function_at(token)
+        return self.const_values.setdefault(function.key if function is not None else "", {})
+
+    def _dead(self, statement: Sequence[Token]) -> bool:
+        first = statement[0]
+        consts = self._consts(first)
+        if consts is None:
+            return False
+        index = self.context.index if self.context is not None else None
+        position = index.index_of(first) if index is not None else None
+        if index is None or position is None:
+            return False
+        stream = index.stream
+        brace = stream.parent[position]
+        innermost = brace
+        while brace >= 0:
+            known = self._dead_braces.get(brace)
+            if known is None:
+                known = self._brace_dead(stream, brace, consts)
+                self._dead_braces[brace] = known
+            if known:
+                return True
+            brace = stream.parent[brace]
+        if innermost >= 0 and self._switch_dead(stream, innermost, statement, consts):
+            return True
+        if first.kind != IDENT or first.in_string:
+            return False
+        if first.text == "else":
+            if self._branch_taken_before(stream, position, consts):
+                return True
+            following = stream.sig(position + 1)
+            if stream.is_ident(following, "if"):
+                return self._guard_false(stream, following, consts)
+            return False
+        if first.text == "if":
+            return self._guard_false(stream, position, consts)
+        return False
+
+    def _condition_truth(self, stream, keyword: int, consts: Dict[str, object]) -> Optional[bool]:
+        opener = stream.sig(keyword + 1)
+        if not stream.is_op(opener, "("):
+            return None
+        closing = stream.closing(opener)
+        if closing < 0:
+            return None
+        return folding.truth(folding.fold(stream.tokens[opener + 1 : closing], consts))
+
+    def _guard_false(self, stream, keyword: int, consts: Dict[str, object]) -> bool:
+        """`if (c) x = y;` không ngoặc nhọn, với `c` luôn sai."""
+        if keyword < 0:
+            return False
+        opener = stream.sig(keyword + 1)
+        closing = stream.closing(opener) if stream.is_op(opener, "(") else -1
+        if closing < 0:
+            return False
+        body = stream.sig(closing + 1)
+        if stream.is_op(body, "{"):
+            return False
+        return self._condition_truth(stream, keyword, consts) is False
+
+    def _header_keyword(self, stream, brace: int) -> int:
+        previous = stream.back(brace - 1)
+        if stream.is_ident(previous, "else", "default"):
+            return previous
+        if stream.is_op(previous, ")"):
+            opener = stream.match[previous]
+            keyword = stream.back(opener - 1)
+            if opener >= 0 and stream.is_ident(keyword, "if", "switch", "while"):
+                return keyword
+        return -1
+
+    def _brace_dead(self, stream, brace: int, consts: Dict[str, object]) -> bool:
+        keyword = self._header_keyword(stream, brace)
+        if keyword < 0:
+            return False
+        text = stream.text(keyword)
+        if text == "else":
+            return self._branch_taken_before(stream, keyword, consts)
+        if text == "if":
+            before = stream.back(keyword - 1)
+            if stream.is_ident(before, "else") and self._branch_taken_before(stream, before, consts):
+                return True
+            return self._condition_truth(stream, keyword, consts) is False
+        if text == "while":
+            return self._condition_truth(stream, keyword, consts) is False
+        return False
+
+    def _branch_taken_before(self, stream, else_index: int, consts: Dict[str, object]) -> bool:
+        """Nhánh `if` ngay trước `else` này chắc chắn chạy, nên `else` chết."""
+        previous = stream.back(else_index - 1)
+        keyword = -1
+        if stream.is_op(previous, "}"):
+            opener = stream.match[previous]
+            if opener >= 0:
+                keyword = self._header_keyword(stream, opener)
+        else:
+            # Thân không ngoặc: `if (c) a = b; else ...` -- lùi về đầu câu.
+            cursor = previous - 1 if stream.is_op(previous, ";") else previous
+            while cursor >= 0:
+                if stream.is_op(cursor, ")", "]"):
+                    opener = stream.match[cursor]
+                    if opener < 0:
+                        return False
+                    cursor = opener - 1
+                    continue
+                if stream.is_op(cursor, ";", "{", "}"):
+                    break
+                cursor -= 1
+            keyword = stream.sig(cursor + 1)
+        if keyword < 0 or not stream.is_ident(keyword, "if"):
+            return False
+        decided = self._condition_truth(stream, keyword, consts)
+        if decided is True:
+            return True
+        before = stream.back(keyword - 1)
+        return stream.is_ident(before, "else") and self._branch_taken_before(stream, before, consts)
+
+    def _switch_dead(self, stream, brace: int, statement: Sequence[Token], consts: Dict[str, object]) -> bool:
+        state = self._switches.get(brace)
+        if state is None:
+            keyword = self._header_keyword(stream, brace)
+            value = None
+            labels: List[object] = []
+            if keyword >= 0 and stream.text(keyword) == "switch":
+                opener = stream.sig(keyword + 1)
+                closing = stream.closing(opener)
+                if closing > 0:
+                    value = folding.fold(stream.tokens[opener + 1 : closing], consts)
+            if value is not None:
+                end = stream.closing(brace)
+                for cursor in range(brace + 1, end if end > 0 else brace + 1):
+                    if stream.parent[cursor] == brace and stream.is_ident(cursor, "case"):
+                        labels.extend(self._case_labels(stream.tokens[cursor + 1 : end], consts))
+            state = [value, False, labels]
+            self._switches[brace] = state
+        value, active, labels = state
+        if value is None:
+            return False
+        first = statement[0]
+        if first.kind == IDENT and first.text == "case":
+            matched = value in self._case_labels(statement[1:], consts)
+            active = matched if self.spec.language == "go" else (active or matched)
+        elif first.kind == IDENT and first.text == "default":
+            unmatched = value not in labels
+            active = unmatched if self.spec.language == "go" else (active or unmatched)
+        dead = not active
+        if first.kind == IDENT and first.text in ("break", "return", "continue", "throw"):
+            active = False
+        state[1] = active
+        return dead
+
+    @staticmethod
+    def _case_labels(tokens: Sequence[Token], consts: Dict[str, object]) -> List[object]:
+        label: List[Token] = []
+        for token in tokens:
+            if token.kind == OP and not token.in_string and token.text in (":", "->"):
+                break
+            label.append(token)
+        values = []
+        for piece in _split_top_level(label):
+            value = folding.fold(piece, consts)
+            if value is not None:
+                values.append(value)
+        return values
+
+    def _select_branch(self, right: Sequence[Token], anchor: Token) -> Sequence[Token]:
+        """`c ? a : b` với `c` gập được: chỉ vế được chọn mang dữ liệu đi."""
+        consts = self._consts(anchor)
+        if consts is None:
+            return right
+        depth = 0
+        question = -1
+        pending = 0
+        for index, token in enumerate(right):
+            if token.kind != OP or token.in_string:
+                continue
+            if token.text in "([{":
+                depth += 1
+            elif token.text in ")]}":
+                depth -= 1
+            elif depth == 0 and token.text == "?":
+                if question < 0:
+                    question = index
+                pending += 1
+            elif depth == 0 and token.text == ":" and question >= 0:
+                pending -= 1
+                if pending == 0:
+                    decided = folding.truth(folding.fold(right[:question], consts))
+                    if decided is None:
+                        return right
+                    return right[question + 1 : index] if decided else right[index + 1 :]
+        return right
+
+    # ------------------------------------------------------------------
+    # Map theo khóa hằng, list theo chỉ số hằng.
+    # ------------------------------------------------------------------
+    def _collection_key(self, name: str, token: Token) -> str:
+        function = self.context.function_at(token) if self.context is not None else None
+        return "%s::%s" % (function.key if function is not None else "", name)
+
+    def _model_collection(self, target: str, right: Sequence[Token], anchor: Token) -> None:
+        key = self._collection_key(target, anchor)
+        self.collections.pop(key, None)
+        meaningful = [token for token in right if token.kind != NEWLINE]
+        if len(meaningful) < 4 or meaningful[0].kind != IDENT or meaningful[0].text != "new":
+            return
+        if not (meaningful[-1].kind == OP and meaningful[-1].text == ")"):
+            return
+        type_name = ""
+        for token in meaningful[1:]:
+            if token.kind == OP and token.text in ("<", "("):
+                break
+            if token.kind == IDENT:
+                type_name = token.text
+        opener = next((i for i, t in enumerate(meaningful) if t.kind == OP and t.text == "("), -1)
+        inside = meaningful[opener + 1 : -1] if opener > 0 else [meaningful[0]]
+        if any(token.kind != NUMBER for token in inside):
+            return
+        if type_name in _MAP_TYPES:
+            self.collections[key] = _Collection("map")
+        elif type_name in _LIST_TYPES:
+            self.collections[key] = _Collection("list")
+
+    def _collection_call(self, head: str, method: str, arguments: Sequence[Sequence[Token]], anchor: Token) -> None:
+        key = self._collection_key(head, anchor)
+        model = self.collections.get(key)
+        if model is None:
+            return
+        if method in _COLLECTION_READS or method in ("size", "isEmpty", "containsKey", "contains", "keySet", "hashCode"):
+            return
+        if model.kind == "map":
+            name = _sole_string(arguments[0]) if arguments else None
+            if method in ("put", "set", "setProperty", "putIfAbsent") and len(arguments) == 2 and name is not None:
+                if method != "putIfAbsent" or name not in model.items:
+                    model.items[name] = self._taint_of(arguments[1])
+                return
+            if method == "remove" and len(arguments) == 1 and name is not None:
+                model.items.pop(name, None)
+                return
+        else:
+            position = _sole_int(arguments[0]) if arguments else None
+            if method in ("add", "push", "offer", "addLast", "append") and len(arguments) == 1:
+                model.items.append(self._taint_of(arguments[0]))
+                return
+            if method == "add" and len(arguments) == 2 and position is not None and 0 <= position <= len(model.items):
+                model.items.insert(position, self._taint_of(arguments[1]))
+                return
+            if method == "set" and len(arguments) == 2 and position is not None and 0 <= position < len(model.items):
+                model.items[position] = self._taint_of(arguments[1])
+                return
+            if method == "remove" and len(arguments) == 1 and position is not None and 0 <= position < len(model.items):
+                model.items.pop(position)
+                return
+        if method == "clear" and not arguments:
+            model.items = {} if model.kind == "map" else []
+            return
+        # Thao tác không mô phỏng được: thôi tin vào mô hình.
+        self.collections.pop(key, None)
+
+    def _collection_read(
+        self, chain: str, tokens: Sequence[Token], open_index: int
+    ) -> Optional[Tuple[Optional[TaintMark], int]]:
+        head, _, method = chain.rpartition(".")
+        if not head or method not in _COLLECTION_READS or not self.collections:
+            return None
+        model = self.collections.get(self._collection_key(head, tokens[open_index]))
+        if model is None:
+            return None
+        arguments, after = _read_arguments(tokens, open_index)
+        if not arguments:
+            return None
+        if model.kind == "map":
+            name = _sole_string(arguments[0])
+            if name is None:
+                return None
+            if name in model.items:
+                return model.items[name], after
+            if method == "getOrDefault" and len(arguments) == 2:
+                return self._taint_of(arguments[1]), after
+            return None, after
+        position = _sole_int(arguments[0])
+        if position is None or not 0 <= position < len(model.items):
+            return None
+        return model.items[position], after
 
     def _returns_from_current(self, token: Token) -> bool:
         """`return` thuộc chính hàm đang tính summary, không thuộc callback lồng trong."""
@@ -284,6 +589,16 @@ class _Analysis:
         if not right:
             return
         target = _assignment_target(left, self.spec)
+        right = self._select_branch(right, statement[0])
+        consts = self._consts(statement[0])
+        if consts is not None and target is not None:
+            value = folding.fold(right, consts)
+            if value is not None and not _guarded_statement(statement) and not self._in_conditional(statement[0]):
+                consts[target] = value
+            else:
+                consts.pop(target, None)
+        if target is not None and self.context is not None:
+            self._model_collection(target, right, statement[0])
         mark = self._taint_of(right)
         extra_targets = _destructured_targets(left, self.spec)
         if extra_targets:
@@ -293,7 +608,7 @@ class _Analysis:
                 if mark is not None:
                     self.tainted[name] = mark
                     self.sanitized.discard(name)
-                elif not self._in_conditional(statement[0]):
+                elif not self._in_conditional(statement[0]) and not _guarded_statement(statement):
                     self.tainted.pop(name, None)
             if target is None or target in extra_targets:
                 return
@@ -312,6 +627,8 @@ class _Analysis:
                     tokens=right,
                     mark=mark,
                 )
+            if target.startswith(_COMPUTED_TARGET):
+                return
             previous = self.tainted.get(target)
             # Gán lại trong thân `if`/`for`/`switch`: nhánh không đi vào khối
             # vẫn mang giá trị cũ ra ngoài, nên phép gán ở đây chỉ được THÊM
@@ -319,7 +636,9 @@ class _Analysis:
             #     term := r.FormValue("t")
             #     if level == "high" { term = html.EscapeString(term) }
             #     w.Write([]byte(term))        // vẫn thủng ở mức thấp
-            conditional = previous is not None and self._in_conditional(statement[0])
+            conditional = previous is not None and (
+                self._in_conditional(statement[0]) or _guarded_statement(statement)
+            )
             if mark is not None:
                 if conditional and previous is not None:
                     mark = _merge_marks(previous, mark)
@@ -391,6 +710,9 @@ class _Analysis:
             return
         if self.spec.language in _JS_LANGUAGES and not self._is_process_receiver(chain):
             return
+        if not arguments and "." in chain:
+            self._check_receiver(chain, sink, anchor, anchor_end)
+            return
         if sink.require_sql:
             selected = _select_sql_argument(arguments, sink, chain, self.budget.spend)
             if not selected and self.context is not None:
@@ -425,6 +747,34 @@ class _Analysis:
             description=sink.description,
             symbol=chain,
             tokens=selected,
+            mark=mark,
+            anchor=anchor,
+            anchor_end=anchor_end,
+            confidence=sink.confidence,
+        )
+
+    def _check_receiver(self, chain: str, sink, anchor: Token, anchor_end: Optional[Token]) -> None:
+        """Sink không đối số đọc dữ liệu từ chính đối tượng nhận lời gọi.
+
+            in = new ObjectInputStream(new ByteArrayInputStream(body)); in.readObject();
+            st = conn.prepareStatement("... '" + name + "'");         st.executeQuery();
+        """
+        # Chỉ những sink mà dữ liệu nằm sẵn trong đối tượng: luồng giải tuần
+        # tự và câu lệnh SQL đã chuẩn bị. `cookie.getValue()` không phải EL.
+        if sink.category not in _RECEIVER_CATEGORIES:
+            return
+        receiver = chain.rsplit(".", 1)[0]
+        mark = self.tainted.get(receiver)
+        if mark is None:
+            return
+        if sink.require_sql and receiver not in self.sql_vars:
+            return
+        self._report_expression(
+            rule_id=sink.tainted_rule,
+            dynamic_rule=None,
+            description=sink.description,
+            symbol=chain,
+            tokens=[anchor],
             mark=mark,
             anchor=anchor,
             anchor_end=anchor_end,
@@ -546,6 +896,8 @@ class _Analysis:
             function = context.function_at(anchor)
             if key and mark is not None and function is not None:
                 self.pending_model.setdefault(function.key, []).append((key, mark, anchor))
+        if head:
+            self._collection_call(head, method, arguments, anchor)
         if method in _MUTATORS and head and head.split(".")[0] not in _NOT_CONTAINERS:
             for argument in arguments:
                 mark = self._taint_of(argument)
@@ -778,7 +1130,7 @@ class _Analysis:
         if function.expression_body:
             return child._taint_of([token for token in body if token.kind != NEWLINE])
         result: Optional[TaintMark] = None
-        for statement in _split_statements(body)[:_MAX_STATEMENTS]:
+        for statement in _split_statements(body, self.literal_braces)[:_MAX_STATEMENTS]:
             if not statement:
                 continue
             self.budget.spend()
@@ -957,6 +1309,54 @@ class _Analysis:
             tags=("cross-file", "template"),
         )
 
+    def _track_foreach(self, statement: Sequence[Token]) -> None:
+        """Biến lặp nhận phần tử của tập hợp bẩn.
+
+            for (Cookie c : request.getCookies())      // Java, C#: `in`
+            for (const name of req.query.names)        // JS/TS
+        """
+        if len(statement) < 6 or statement[0].kind != IDENT or statement[0].text not in ("for", "foreach"):
+            return
+        if statement[1].kind != OP or statement[1].text != "(":
+            return
+        depth = 0
+        for index in range(1, len(statement)):
+            token = statement[index]
+            if token.kind == OP and not token.in_string:
+                if token.text in "([":
+                    depth += 1
+                    continue
+                if token.text in ")]":
+                    depth -= 1
+                    if depth == 0:
+                        return
+                    continue
+            if depth != 1 or token.in_string:
+                continue
+            separator = (token.kind == OP and token.text == ":") or (
+                token.kind == IDENT and token.text in ("of", "in")
+            )
+            if not separator or index < 3 or statement[index - 1].kind != IDENT:
+                continue
+            closing = index + 1
+            level = 1
+            while closing < len(statement) and level:
+                inner = statement[closing]
+                if inner.kind == OP and not inner.in_string:
+                    if inner.text in "([":
+                        level += 1
+                    elif inner.text in ")]":
+                        level -= 1
+                closing += 1
+            name = statement[index - 1].text
+            mark = self._taint_of(statement[index + 1 : closing - 1])
+            if mark is not None:
+                self.tainted[name] = mark
+                self.sanitized.discard(name)
+            elif not self._in_conditional(statement[0]):
+                self.tainted.pop(name, None)
+            return
+
     def _track_callbacks(self, statement: Sequence[Token]) -> None:
         """Tham số của callback nhận phần tử từ một tập hợp bẩn.
 
@@ -964,6 +1364,7 @@ class _Analysis:
             for _, v := range r.URL.Query()["x"] { exec.Command(v) }
         """
         limit = len(statement)
+        self._track_foreach(statement)
         for index, token in enumerate(statement):
             if token.kind != IDENT or token.in_string:
                 continue
@@ -1108,6 +1509,13 @@ class _Analysis:
                 and tokens[next_index].text == "("
                 and not tokens[next_index].in_string
             ):
+                modeled = self._collection_read(chain, tokens, next_index)
+                if modeled is not None:
+                    element, after = modeled
+                    if element is not None:
+                        hits.append((index, element))
+                    index = max(after, index + 1)
+                    continue
                 resolved = self._call_result(chain, tokens[index], tokens, next_index)
                 if resolved is not None:
                     returned, after = resolved
@@ -1400,22 +1808,22 @@ def _category_of(rule_id: str) -> Category:
     return get_rule(rule_id).category
 
 
-def _split_statements(tokens: Sequence[Token]) -> List[List[Token]]:
+def _split_statements(tokens: Sequence[Token], literals: bool = False) -> List[List[Token]]:
     statements: List[List[Token]] = []
     current: List[Token] = []
     depth = 0
-    patterns = _destructuring_braces(tokens)
-    pattern_end = -1
+    spans = _inline_braces(tokens, literals)
+    span_end = -1
     for position, token in enumerate(tokens):
         if token.kind == NEWLINE:
-            if depth == 0 and current and not _continues(current[-1]) and position > pattern_end:
+            if depth == 0 and current and not _continues(current[-1]) and position > span_end:
                 statements.append(current)
                 current = []
             continue
         if token.kind == OP and not token.in_string:
-            if position in patterns:
-                pattern_end = patterns[position]
-            if position <= pattern_end:
+            if position in spans:
+                span_end = spans[position]
+            if position <= span_end:
                 current.append(token)
                 continue
             if token.text in "([":
@@ -1437,41 +1845,72 @@ def _split_statements(tokens: Sequence[Token]) -> List[List[Token]]:
     return statements
 
 
-def _destructuring_braces(tokens: Sequence[Token]) -> Dict[int, int]:
-    """`const { a, b } = x`: ngoặc nhọn của mẫu phá cấu trúc không cắt câu lệnh."""
+# Dấu đứng trước `{` khi `{` mở một giá trị ( object / mảng ) chứ không mở khối lệnh.
+_LITERAL_LEADS = frozenset({"=", "(", ",", ":", "[", "?", "||", "&&", "??", "]", "+"})
+_MAX_INLINE_SPAN = 256
+
+
+def _inline_braces(tokens: Sequence[Token], literals: bool) -> Dict[int, int]:
+    """Ngoặc nhọn không cắt câu lệnh: mẫu phá cấu trúc và literal đơn giản.
+
+        const { a, b } = req.query                 -- mẫu phá cấu trúc
+        res.render("v", { bio: req.query.bio })    -- object literal ( JS/TS )
+        <div dangerouslySetInnerHTML={{ __html: t }} />
+        new String[] { "sh", "-c", cmd }           -- khởi tạo mảng ( Java )
+
+    Literal chứa thân hàm ( `=>`, `function`, `) {` ) hay dấu `;` thì vẫn bị
+    cắt như cũ, để các câu lệnh bên trong được phân tích từng câu.
+    """
     found: Dict[int, int] = {}
     previous: Optional[Token] = None
     for index, token in enumerate(tokens):
         if token.kind == NEWLINE:
             continue
-        if (
-            token.kind == OP
-            and token.text == "{"
-            and not token.in_string
-            and previous is not None
-            and previous.kind == IDENT
-            and previous.text in ("const", "let", "var")
-        ):
-            depth = 0
-            for cursor in range(index, min(len(tokens), index + 256)):
-                inner = tokens[cursor]
-                if inner.kind != OP or inner.in_string:
-                    continue
-                if inner.text == "{":
-                    depth += 1
-                elif inner.text == "}":
-                    depth -= 1
-                    if depth == 0:
-                        after = cursor + 1
-                        while after < len(tokens) and tokens[after].kind == NEWLINE:
-                            after += 1
-                        if after < len(tokens) and tokens[after].kind == OP and tokens[after].text in ("=", ":"):
-                            found[index] = cursor
-                        break
-                elif inner.text == ";":
-                    break
+        if token.kind == OP and token.text == "{" and not token.in_string and previous is not None:
+            if previous.kind == IDENT and previous.text in ("const", "let", "var"):
+                closing = _brace_span(tokens, index, literal=False)
+                if closing >= 0:
+                    after = closing + 1
+                    while after < len(tokens) and tokens[after].kind == NEWLINE:
+                        after += 1
+                    if after < len(tokens) and tokens[after].kind == OP and tokens[after].text in ("=", ":"):
+                        found[index] = closing
+            elif literals and not previous.in_string and (
+                (previous.kind == OP and previous.text in _LITERAL_LEADS)
+                or (previous.kind == IDENT and previous.text == "return")
+            ):
+                closing = _brace_span(tokens, index, literal=True)
+                if closing >= 0:
+                    found[index] = closing
         previous = token
     return found
+
+
+def _brace_span(tokens: Sequence[Token], index: int, literal: bool) -> int:
+    depth = 0
+    last: Optional[Token] = None
+    for cursor in range(index, min(len(tokens), index + _MAX_INLINE_SPAN)):
+        inner = tokens[cursor]
+        if inner.kind == NEWLINE:
+            continue
+        if inner.in_string:
+            last = inner
+            continue
+        if inner.kind == OP:
+            if inner.text == "{":
+                if literal and last is not None and last.kind == OP and last.text == ")":
+                    return -1
+                depth += 1
+            elif inner.text == "}":
+                depth -= 1
+                if depth == 0:
+                    return cursor
+            elif inner.text == ";" or (literal and inner.text == "=>"):
+                return -1
+        elif literal and inner.kind == IDENT and inner.text == "function":
+            return -1
+        last = inner
+    return -1
 
 
 def _continues(token: Token) -> bool:
@@ -1518,6 +1957,35 @@ def _strip_type_annotation(left: Sequence[Token], spec: LanguageSpec) -> Sequenc
     return left
 
 
+_COMPUTED_TARGET = "()."
+_MAP_TYPES = frozenset({"HashMap", "LinkedHashMap", "TreeMap", "Hashtable", "Properties", "ConcurrentHashMap", "Map"})
+_LIST_TYPES = frozenset({"ArrayList", "LinkedList", "Vector", "ArrayDeque", "Stack"})
+_COLLECTION_READS = frozenset({"get", "getProperty", "getOrDefault", "elementAt"})
+
+
+class _Collection:
+    __slots__ = ("kind", "items")
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+        self.items: "Dict[str, Optional[TaintMark]] | List[Optional[TaintMark]]" = {} if kind == "map" else []
+
+
+def _sole_int(argument: Sequence[Token]) -> Optional[int]:
+    meaningful = [token for token in argument if token.kind != NEWLINE]
+    if len(meaningful) == 1 and meaningful[0].kind == NUMBER and meaningful[0].text.isdigit():
+        return int(meaningful[0].text)
+    return None
+_RECEIVER_CATEGORIES = frozenset({Category.DESERIALIZATION, Category.SQL})
+_GUARDS = frozenset({"if", "else", "elif", "while", "for", "foreach", "case", "default", "unless", "until"})
+
+
+def _guarded_statement(statement: Sequence[Token]) -> bool:
+    """Câu lệnh là thân không ngoặc của if/else/vòng lặp: `if (x == null) x = "";`."""
+    first = statement[0]
+    return first.kind == IDENT and not first.in_string and first.text in _GUARDS
+
+
 def _assignment_target(left: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
     left = _strip_type_annotation(left, spec)
     filtered = [token for token in left if token.kind in (IDENT, OP)]
@@ -1528,6 +1996,13 @@ def _assignment_target(left: Sequence[Token], spec: LanguageSpec) -> Optional[st
     while start > 0:
         previous = filtered[start - 1]
         if previous.kind == OP and previous.text in spec.chain_separators:
+            if start >= 2 and filtered[start - 2].kind == OP and filtered[start - 2].text in (")", "]"):
+                # `document.getElementById("x").innerHTML = v`: đích là thuộc
+                # tính của một giá trị tính ra, chỉ tên thuộc tính là biết chắc.
+                member = filtered[end - 1]
+                if member.kind != IDENT:
+                    return None
+                return _COMPUTED_TARGET + member.text
             start -= 2
             continue
         break
@@ -1805,11 +2280,22 @@ def _group_end(tokens: Sequence[Token], opening: int) -> Optional[int]:
 
 
 def _is_literal(tokens: Sequence[Token]) -> bool:
-    for token in tokens:
+    significant = [token for token in tokens if token.kind != NEWLINE]
+    for index, token in enumerate(significant):
         if token.interpolated:
             return False
-        if token.kind in (IDENT,):
-            return False
+        if token.kind != IDENT:
+            continue
+        # Tên kiểu trong mảng hằng: `new String[] {"a"}` ( Java/C# ), `[]string{"a"}` ( Go ).
+        following = significant[index + 1 : index + 3]
+        if token.text == "new" and not token.in_string:
+            continue
+        if len(following) == 2 and following[0].text == "[" and following[1].text == "]":
+            continue
+        previous = significant[index - 1] if index > 0 else None
+        if previous is not None and previous.text == "]" and following and following[0].text == "{":
+            continue
+        return False
     return True
 
 
