@@ -599,8 +599,16 @@ def diagram_owasp(theme: str) -> str:
 
 LANGUAGE_COVERAGE: Sequence[Tuple[str, str, int, str]] = (
     ("Python", "AST + luồng dữ liệu, xuyên file", 27, "full"),
-    ("JavaScript / TypeScript", "Express, Node", 9, "token"),
     ("C / C++ / Objective-C", "6 luật bộ nhớ + lệnh, SQL, path, dlopen", 5, "native"),
+    # Số họ rule của Java, Kotlin, Groovy, Scala, Go, C# đếm từ
+    # tests/test_language_family_coverage.py: mỗi họ có một mẫu bắt được thật.
+    ("Java", "Servlet, Spring, Android", 14, "token"),
+    ("Kotlin", "Spring, Ktor, Android", 14, "token"),
+    ("Groovy / Jenkinsfile", "Grails, pipeline Jenkins", 14, "token"),
+    ("C#", "ASP.NET Core, ADO.NET", 12, "token"),
+    ("JavaScript / TypeScript", "Express, Node", 9, "token"),
+    ("Scala", "Play, Akka HTTP, Slick", 9, "token"),
+    ("Go", "net/http, gin, echo", 8, "token"),
     ("PHP", "$_GET / $_POST / $_COOKIE", 8, "token"),
     ("Lua", "OpenResty ngx.*", 7, "token"),
     ("Rust", "actix, axum", 6, "token"),
@@ -608,16 +616,13 @@ LANGUAGE_COVERAGE: Sequence[Tuple[str, str, int, str]] = (
     ("Perl", "CGI $q->param", 5, "token"),
     ("Workflow GitHub Actions", ".github/workflows/*.yml", 4, "token"),
     ("Ruby", "Rails params", 4, "token"),
-    ("Java / JVM", "Servlet getParameter", 3, "token"),
-    ("Go", "net/http + database/sql", 3, "token"),
     ("Shell", "bash, sh", 2, "token"),
     ("package.json", "script vòng đời", 2, "token"),
-    ("C#", "ASP.NET Request.Query", 1, "token"),
 )
 
 
 def diagram_languages(theme: str) -> str:
-    cv = Canvas(566, theme)
+    cv = Canvas(126 + len(LANGUAGE_COVERAGE) * 30, theme)
     c = cv.c
     cv.title(
         "Độ phủ trên %d ngôn ngữ và định dạng" % len(LANGUAGE_COVERAGE),
@@ -671,7 +676,8 @@ def diagram_analyzers(theme: str) -> str:
             ("Phủ được", "27 / %d rule" % len(list(all_rules()))),
             ("Hàm bọc tự viết", "tự học được, kể cả khác tệp"),
         ]),
-        ("13 ngôn ngữ còn lại", c["blue"], "Lexer theo token", [
+        ("%d ngôn ngữ còn lại" % sum(kind == "token" for *_, kind in LANGUAGE_COVERAGE),
+         c["blue"], "Lexer theo token", [
             ("Cách đọc mã", "tách token, lexer riêng từng ngôn ngữ"),
             ("Theo dữ liệu qua", "trong phạm vi một hàm"),
             ("Ranh giới tệp", "dừng lại ở đó"),

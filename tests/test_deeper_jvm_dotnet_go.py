@@ -184,6 +184,22 @@ def test_csharp_interpolated_redirect_with_a_fixed_path():
     assert hits(source, CSHARP) == [("FSB-REDIR-001", 5)]
 
 
+def test_csharp_command_text_and_ldap_filter_properties():
+    source = (
+        "public class C : Controller {\n"
+        "  public IActionResult A() {\n"
+        '    var v = Request.Query["v"];\n'
+        "    cmd.CommandText = \"SELECT * FROM t WHERE a = '\" + v + \"'\";\n"
+        '    cmd.CommandText = "SELECT * FROM t WHERE a = @a";\n'
+        '    searcher.Filter = "(uid=" + v + ")";\n'
+        '    searcher.Filter = "(uid=" + Encoder.LdapFilterEncode(v) + ")";\n'
+        "    return Ok();\n"
+        "  }\n"
+        "}\n"
+    )
+    assert hits(source, CSHARP) == [("FSB-LDAP-001", 6), ("FSB-SQL-001", 4)]
+
+
 def test_csharp_from_query_attribute():
     source = (
         "public class C : ControllerBase {\n"

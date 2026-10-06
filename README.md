@@ -13,7 +13,7 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![rules](https://img.shields.io/badge/41-rule-e05d44?style=flat-square)](#-41-rule-trên-18-họ-lỗ-hổng)
 [![families](https://img.shields.io/badge/18-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-41-rule-trên-18-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/15-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1281-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1434-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -69,8 +69,8 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 <tr>
 <td align="center"><b>41</b><br/><sub>rule</sub></td>
 <td align="center"><b>18</b><br/><sub>họ lỗ hổng</sub></td>
-<td align="center"><b>15</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1281</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>18</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
+<td align="center"><b>1434</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
@@ -193,7 +193,7 @@ một hàm bọc vẫn bắt được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/languages-dark.svg">
-  <img alt="Độ phủ trên 15 ngôn ngữ và định dạng" src="docs/img/languages-light.svg" width="100%">
+  <img alt="Độ phủ trên 18 ngôn ngữ và định dạng" src="docs/img/languages-light.svg" width="100%">
 </picture>
 
 <details>
@@ -212,11 +212,14 @@ một hàm bọc vẫn bắt được.
 | 🐫 **Perl** <sub>CGI `$q->param`</sub> | command, `eval`, `open` hai đối số, SQL ( DBI ), `Storable::thaw` |
 | 💎 **Ruby** <sub>Rails `params`</sub> | command, `eval`, template ( ERB ), `Marshal.load` |
 | ⚙️ **Workflow GitHub Actions** | injection biểu thức, pwn request, action ghim bằng nhãn di động |
-| ☕ **Java / JVM** <sub>Servlet</sub> | command, SQL, expression language ( SpEL ) |
-| 🐹 **Go** <sub>`net/http`</sub> | command, SQL, template |
+| ☕ **Java** <sub>Servlet, Spring MVC, WebFlux, Android</sub> | command, SQL ( JDBC, JPA, `JdbcTemplate`, `rawQuery`, kể cả câu dựng sẵn trong biến hay `StringBuilder` ), SpEL / OGNL / MVEL, `ScriptEngine.eval`, path, redirect ( cả `"redirect:" + url` ), SSRF, XSS, header, LDAP, XPath, deser ( `Yaml.load`, `ObjectInputStream` ), Velocity, `Class.forName` |
+| 🟣 **Kotlin** <sub>Spring, Ktor, Android</sub> | như Java, đọc cả chuỗi `"$x"` / `"""..."""` và `call.parameters` của Ktor |
+| 🔴 **Scala** <sub>Play, Akka HTTP / Pekko, http4s</sub> | command ( `sys.process`, chỉ báo nặng khi đi qua shell ), SQL ( Anorm, phần dán `#$` của Slick, `Fragment.const`, `spark.sql` ), path, redirect, SSRF ( WS, sttp ), XSS ( `Html` ), `ToolBox.eval`, deser, `Class.forName` |
+| 🟢 **Groovy / Jenkinsfile** <sub>Grails, pipeline Jenkins, `.gradle`</sub> | như Java, cộng `sh "..."` nháy kép nhận tham số build hay dữ liệu PR, `"...".execute()`, `Eval` / `GroovyShell`, `SimpleTemplateEngine`, SQL GString nối bằng `+` |
+| 🐹 **Go** <sub>`net/http`, gin, echo, chi</sub> | command, SQL ( kể cả câu dựng sẵn trong biến ), template, path, redirect, SSRF, XSS ( `fmt.Fprintf(w, …)` ), header |
 | 📦 **`package.json`** | script vòng đời tải mã từ xa về chạy |
 | 🐚 **Shell** <sub>bash, sh</sub> | `eval`, biến không đặt trong nháy kép |
-| 🟦 **C#** <sub>ASP.NET</sub> | SQL |
+| 🟦 **C#** <sub>ASP.NET Core, ADO.NET</sub> | SQL ( `SqlCommand`, `CommandText` ), command ( `cmd.exe /c` ), path, redirect, SSRF, XSS ( `Html.Raw` ), header, LDAP, XPath, deser, `CSharpScript`, `Type.GetType` |
 | ⚙️ **C / C++ / Objective-C** <sub>`.c` `.h` `.cpp` `.hpp` `.mm`</sub> | tràn bộ đệm ( `gets`, `strcpy`, `strcat`, `sprintf`, `scanf("%s")`, `memcpy`/`recv` với độ dài chưa kiểm ), format string, use-after-free, double free, tràn số nguyên vào `malloc`, lệch một; command ( `system`, `popen`, `exec*` ), SQL ( SQLite, MySQL, libpq ), path, `dlopen` |
 
 </details>
@@ -342,7 +345,7 @@ Khi gõ lệnh quét thì có sáu bước xảy ra:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/analyzers-dark.svg">
-  <img alt="So sánh bộ phân tích AST cho Python với bộ quét theo token cho 13 ngôn ngữ còn lại" src="docs/img/analyzers-light.svg" width="100%">
+  <img alt="So sánh bộ phân tích AST cho Python với bộ quét theo token cho 16 ngôn ngữ còn lại" src="docs/img/analyzers-light.svg" width="100%">
 </picture>
 
 Rẽ nhánh thì hai nhánh được **gộp lại** ( nhiễm ở một nhánh là đủ để cảnh báo ), vòng lặp chỉ chạy
@@ -527,7 +530,7 @@ curl http://example.com/#frag; MSG="# fortress-scan: ignore-file" # Shell
 | :--- | :--- |
 | Python, Ruby | `#` |
 | Shell | `#`, và phải đứng đầu một từ |
-| JavaScript, TypeScript, Java/JVM, C#, Go | `//`, `/* */` |
+| JavaScript, TypeScript, Java, Kotlin, Scala, Groovy, C#, Go | `//`, `/* */` |
 | PHP | `//`, `#`, `/* */` |
 | Lua | `--` |
 

@@ -1368,11 +1368,14 @@ _CSHARP_SINKS: Tuple[GenericSink, ...] = (
         argument_index=1,
     ),
     GenericSink(
+        # DirectorySearcher(filter) hay DirectorySearcher(entry, filter, ...):
+        # bộ lọc không ở một vị trí cố định.
         ("DirectorySearcher",),
         Category.LDAP,
         "FSB-LDAP-001",
         None,
         "một bộ lọc LDAP",
+        all_arguments_from=0,
     ),
     GenericSink(
         ("SelectNodes", "SelectSingleNode", "XPathNavigator.Evaluate", "XPathNavigator.Select"),
@@ -2105,6 +2108,11 @@ SPECS: Dict[str, LanguageSpec] = {
         lexer=_CSHARP_LEXER,
         sources=_CSHARP_SOURCES,
         sinks=_CSHARP_SINKS,
+        # cmd.CommandText = "..." + id; cmd.ExecuteReader(): cách viết ADO.NET phổ biến nhất.
+        assignment_sinks={
+            "CommandText": ("FSB-SQL-001", Category.SQL, "câu lệnh SQL `CommandText`"),
+            "Filter": ("FSB-LDAP-001", Category.LDAP, "bộ lọc LDAP `Filter`"),
+        },
         sanitizers={
             "int.Parse": _ALL_CATEGORIES,
             "Int32.Parse": _ALL_CATEGORIES,
@@ -2120,6 +2128,8 @@ SPECS: Dict[str, LanguageSpec] = {
             "Uri.EscapeDataString": _ALL_CATEGORIES,
             "HttpUtility.UrlEncode": _ALL_CATEGORIES,
             "Path.GetFileName": frozenset({Category.PATH, Category.DYNAMIC_IMPORT}),
+            "Encoder.LdapFilterEncode": frozenset({Category.LDAP}),
+            "Encoder.LdapDistinguishedNameEncode": frozenset({Category.LDAP}),
         },
         declaration_keywords=frozenset({"var", "string", "int", "object"}),
         receiver_propagators=frozenset({"Append", "AppendLine", "AppendFormat", "Insert"}),
