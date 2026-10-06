@@ -21,6 +21,7 @@ from ...core.model import Category
 from ...languages import GO, JAVA, JAVASCRIPT, TYPESCRIPT
 from . import artifacts
 from .model import Callee, ClassDef, FileFacts, FunctionDef, SinkHit, Summary
+from .stream import TokenIndex
 
 JS_FAMILY = frozenset({JAVASCRIPT, TYPESCRIPT})
 SUPPORTED = frozenset({JAVASCRIPT, TYPESCRIPT, JAVA, GO})
@@ -184,6 +185,9 @@ class XProject:
         self._extra_requests: Dict[str, List[Tuple[int, int, str, str]]] = {}
         self._extra_sources_cache: Dict[str, Dict[str, str]] = {}
         self._static_hits: Dict[str, Set[SinkHit]] = {}
+        # Phép phân giải kiểu đang chạy dở: `x := x.Next()` không được tự gọi mình mãi.
+        self._active: Set[Tuple[str, str, str, str]] = set()
+        self._token_indexes: Dict[str, TokenIndex] = {}
 
     # ------------------------------------------------------------ building
     def add_file(self, facts: FileFacts) -> None:
@@ -431,6 +435,16 @@ class XProject:
         self._extra_sources_cache[path] = result
         return result
 
+    def token_index(self, path: str, tokens) -> TokenIndex:
+        """Chỉ mục vị trí token dùng chung cho mọi hàm của cùng một tệp."""
+        cached = self._token_indexes.get(path)
+        if cached is not None and cached.tokens is tokens:
+            return cached
+        index = TokenIndex(tokens)
+        # Chỉ giữ tệp đang làm việc: summary đi lần lượt từng tệp.
+        self._token_indexes = {path: index}
+        return index
+
     def reset_source_cache(self) -> None:
         self._extra_sources_cache.clear()
 
@@ -631,6 +645,16 @@ class XProject:
         return ""
 
     def _js_return_type(self, facts: FileFacts, chain: str, function: Optional[FunctionDef]) -> str:
+        key = ("js", facts.path, chain, function.key if function is not None else "")
+        if key in self._active:
+            return ""
+        self._active.add(key)
+        try:
+            return self._js_return_type_inner(facts, chain, function)
+        finally:
+            self._active.discard(key)
+
+    def _js_return_type_inner(self, facts: FileFacts, chain: str, function: Optional[FunctionDef]) -> str:
         for target in self._js_call(facts, chain, function):
             if target.return_type:
                 return target.return_type
@@ -837,10 +861,15 @@ class XProject:
             if name in env:
                 return env[name]
             deferred = facts.deferred.get(function.key, {}).get(name)
-            if deferred:
-                for target in self._java_call(facts, deferred, function):
-                    if target.return_type:
-                        return target.return_type
+            key = ("jvm", facts.path, deferred, function.key)
+            if deferred and key not in self._active:
+                self._active.add(key)
+                try:
+                    for target in self._java_call(facts, deferred, function):
+                        if target.return_type:
+                            return target.return_type
+                finally:
+                    self._active.discard(key)
         if current is not None:
             info: Optional[ClassDef] = current
             depth = 0
@@ -1011,14 +1040,19 @@ class XProject:
         if name in env:
             return self._go_type(facts, env[name])
         deferred = facts.deferred.get(function.key, {}).get(name)
-        if deferred:
-            results: List[ClassDef] = []
-            for target in self._go_call(facts, deferred, function):
-                if target.return_type:
-                    target_facts = self.facts.get(target.path)
-                    if target_facts is not None:
-                        results.extend(self._go_type(target_facts, target.return_type))
-            return results
+        key = ("go", facts.path, deferred or "", function.key)
+        if deferred and key not in self._active:
+            self._active.add(key)
+            try:
+                results: List[ClassDef] = []
+                for target in self._go_call(facts, deferred, function):
+                    if target.return_type:
+                        target_facts = self.facts.get(target.path)
+                        if target_facts is not None:
+                            results.extend(self._go_type(target_facts, target.return_type))
+                return results
+            finally:
+                self._active.discard(key)
         return []
 
     def _go_call(self, facts: FileFacts, chain: str, function: Optional[FunctionDef]) -> List[FunctionDef]:

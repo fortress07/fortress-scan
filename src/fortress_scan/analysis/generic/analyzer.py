@@ -10,6 +10,7 @@ from ..base import Analyzer, AnalysisUnit, FindingBuilder
 from ..python.specs import looks_like_sql
 from ..xfile.context import PROBE, SUMMARY, FileContext
 from ..xfile.model import Callee, FunctionDef, SinkHit, SourceReturn, Summary
+from ..xfile.stream import TokenIndex
 from .lexer import IDENT, NEWLINE, OP, STRING, Token, tokenize
 from .profiles import GenericSink, LanguageSpec, spec_for
 
@@ -156,8 +157,17 @@ class _Analysis:
         self.pending_model: Dict[str, List[Tuple[str, TaintMark, Token]]] = {}
         # Nguồn thật cuối cùng mà _taint_of nhìn thấy cạnh vết của tham số.
         self._last_source: Optional[TaintMark] = None
+        self._index: Optional[TokenIndex] = None
+
+    def _in_conditional(self, token: Token) -> bool:
+        index = self.context.index if self.context is not None else self._index
+        if index is None:
+            return False
+        return index.conditional(token)
 
     def run(self, tokens: Sequence[Token]) -> List[Finding]:
+        if self.context is None:
+            self._index = TokenIndex(tokens)
         self._collect_declarations(tokens)
         self._seed_annotations(tokens)
         if self.context is not None:
@@ -264,6 +274,18 @@ class _Analysis:
             return
         target = _assignment_target(left, self.spec)
         mark = self._taint_of(right)
+        extra_targets = _destructured_targets(left, self.spec)
+        if extra_targets:
+            # `const { id, name: n } = req.query` / `rows, err := db.Query(q)`:
+            # mỗi tên bên trái nhận trọn vết nhiễm của vế phải.
+            for name in extra_targets:
+                if mark is not None:
+                    self.tainted[name] = mark
+                    self.sanitized.discard(name)
+                elif not self._in_conditional(statement[0]):
+                    self.tainted.pop(name, None)
+            if target is None or target in extra_targets:
+                return
         if self.context is not None and target is not None:
             self._track_value_kind(target, right)
 
@@ -279,13 +301,23 @@ class _Analysis:
                     tokens=right,
                     mark=mark,
                 )
+            previous = self.tainted.get(target)
+            # Gán lại trong thân `if`/`for`/`switch`: nhánh không đi vào khối
+            # vẫn mang giá trị cũ ra ngoài, nên phép gán ở đây chỉ được THÊM
+            # vết nhiễm chứ không được xóa nó.
+            #     term := r.FormValue("t")
+            #     if level == "high" { term = html.EscapeString(term) }
+            #     w.Write([]byte(term))        // vẫn thủng ở mức thấp
+            conditional = previous is not None and self._in_conditional(statement[0])
             if mark is not None:
+                if conditional and previous is not None:
+                    mark = _merge_marks(previous, mark)
                 self.tainted[target] = mark
                 self.sanitized.discard(target)
                 simple = target.rsplit(".", 1)[-1]
                 if simple != target:
                     self.tainted.setdefault(simple, mark)
-            else:
+            elif not conditional:
                 self.tainted.pop(target, None)
                 if self._is_neutralized(right):
                     self.sanitized.add(target)
@@ -311,7 +343,16 @@ class _Analysis:
             chain_end = statement[next_index - 1] if next_index > index else statement[index]
             if opens_call:
                 arguments, _ = _read_arguments(statement, next_index)
-                self._check_call(chain, statement[index], arguments, chain_end)
+                if not (
+                    self.spec.language in _JS_LANGUAGES
+                    and chain in _PROCESS_METHODS
+                    and index > 0
+                    and statement[index - 1].kind == OP
+                    and statement[index - 1].text in (".", "?.")
+                ):
+                    # `V[g].exec(h)`: chuỗi đọc được chỉ là `exec`, nhưng nó là
+                    # phương thức của một biểu thức chứ không phải hàm trần.
+                    self._check_call(chain, statement[index], arguments, chain_end)
                 if self.context is not None:
                     self._project_call(chain, statement[index], arguments, statement, next_index)
             elif (
@@ -336,6 +377,8 @@ class _Analysis:
     ) -> None:
         sink = _match_sink(chain, self.spec)
         if sink is None:
+            return
+        if self.spec.language in _JS_LANGUAGES and not self._is_process_receiver(chain):
             return
         if sink.require_sql:
             selected = _select_sql_argument(arguments, sink, chain, self.budget.spend)
@@ -501,6 +544,26 @@ class _Analysis:
                     break
         for callee in context.resolve(chain, anchor, len(arguments)):
             self._apply_callee(callee, anchor, arguments)
+
+    def _is_process_receiver(self, chain: str) -> bool:
+        """`re.exec(s)` là RegExp, không phải child_process.
+
+        Trong JavaScript `exec` là tên phương thức của MỌI biểu thức chính quy,
+        nên một tệp jQuery đã minify đủ để sinh hàng chục phát hiện "lệnh
+        shell" giả. Chỉ coi `x.exec(...)` là tạo tiến trình khi `x` thật sự là
+        module child_process ( theo import, hoặc theo tên quen dùng ).
+        """
+        head, _, method = chain.rpartition(".")
+        if not head or method not in _PROCESS_METHODS:
+            return True
+        receiver = head.rsplit(".", 1)[-1]
+        if receiver in _PROCESS_RECEIVERS:
+            return True
+        if self.context is not None and self.context.facts is not None:
+            binding = self.context.facts.imports.get(head.split(".", 1)[0])
+            if binding is not None and binding.spec in _PROCESS_MODULES:
+                return True
+        return False
 
     def _record_conditional_sql(
         self, sink: GenericSink, chain: str, arguments: Sequence[Sequence[Token]], anchor: Token
@@ -1119,6 +1182,12 @@ _ITERATORS = frozenset(
     {"forEach", "map", "flatMap", "filter", "find", "some", "every", "reduce", "then", "each", "forEachOrdered", "peek", "anyMatch", "allMatch"}
 )
 _CONFIG_OBJECTS = frozenset({"config", "nconf", "conf", "settings", "cfg"})
+_JS_LANGUAGES = frozenset({"javascript", "typescript"})
+_PROCESS_METHODS = frozenset({"exec", "execSync"})
+_PROCESS_RECEIVERS = frozenset(
+    {"child_process", "childProcess", "cp", "proc", "shell", "shelljs", "sh", "execa", "childproc", "child", "processes"}
+)
+_PROCESS_MODULES = frozenset({"child_process", "node:child_process", "shelljs", "execa", "child-process-promise"})
 _ANY_SQL_SINK = GenericSink((), Category.SQL, "FSB-SQL-001", "FSB-SQL-002", "", require_sql=True)
 
 
@@ -1205,6 +1274,70 @@ def _callback_parameters(statement: Sequence[Token], start: int) -> List[str]:
     return []
 
 
+def _destructured_targets(left: Sequence[Token], spec: LanguageSpec) -> List[str]:
+    """Tên được gán khi vế trái là mẫu phá cấu trúc hoặc danh sách nhiều tên."""
+    tokens = [token for token in _strip_type_annotation_pattern(left, spec) if token.kind != NEWLINE]
+    while tokens and tokens[0].kind == IDENT and tokens[0].text in _DECLARATORS:
+        tokens = tokens[1:]
+    if not tokens:
+        return []
+    first = tokens[0]
+    if first.kind == OP and first.text in ("{", "[") and not first.in_string:
+        names: List[str] = []
+        depth = 0
+        skipping_default = False
+        for index, token in enumerate(tokens):
+            if token.kind == OP and not token.in_string:
+                if token.text in "{[(":
+                    depth += 1
+                elif token.text in "}])":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                elif token.text == ",":
+                    skipping_default = False
+                elif token.text == "=":
+                    skipping_default = True
+                continue
+            if token.kind != IDENT or skipping_default:
+                continue
+            following = tokens[index + 1] if index + 1 < len(tokens) else None
+            if following is not None and following.kind == OP and following.text == ":":
+                continue
+            names.append(token.text)
+        return names
+    # Go / Lua: `a, err := f()` -- vế trái có dấu phẩy ở cấp ngoài cùng.
+    pieces = _split_top_level(tokens)
+    if len(pieces) < 2:
+        return []
+    names = []
+    for piece in pieces:
+        chain, _ = _read_chain(piece, 0, spec) if piece else (None, 0)
+        if chain and chain != "_":
+            names.append(chain)
+    return names
+
+
+_DECLARATORS = frozenset({"const", "let", "var", "val", "export", "local", "my", "our"})
+
+
+def _strip_type_annotation_pattern(left: Sequence[Token], spec: LanguageSpec) -> Sequence[Token]:
+    """`const { a }: Props = ...` -- bỏ phần kiểu sau mẫu phá cấu trúc."""
+    if spec.annotation_separator is None:
+        return left
+    depth = 0
+    for index, token in enumerate(left):
+        if token.kind != OP or token.in_string:
+            continue
+        if token.text in "([{":
+            depth += 1
+        elif token.text in ")]}":
+            depth -= 1
+        elif depth == 0 and token.text == spec.annotation_separator and index > 0:
+            return left[:index]
+    return left
+
+
 def _category_of(rule_id: str) -> Category:
     return get_rule(rule_id).category
 
@@ -1213,13 +1346,20 @@ def _split_statements(tokens: Sequence[Token]) -> List[List[Token]]:
     statements: List[List[Token]] = []
     current: List[Token] = []
     depth = 0
-    for token in tokens:
+    patterns = _destructuring_braces(tokens)
+    pattern_end = -1
+    for position, token in enumerate(tokens):
         if token.kind == NEWLINE:
-            if depth == 0 and current and not _continues(current[-1]):
+            if depth == 0 and current and not _continues(current[-1]) and position > pattern_end:
                 statements.append(current)
                 current = []
             continue
         if token.kind == OP and not token.in_string:
+            if position in patterns:
+                pattern_end = patterns[position]
+            if position <= pattern_end:
+                current.append(token)
+                continue
             if token.text in "([":
                 depth += 1
             elif token.text in ")]":
@@ -1237,6 +1377,43 @@ def _split_statements(tokens: Sequence[Token]) -> List[List[Token]]:
     if current:
         statements.append(current)
     return statements
+
+
+def _destructuring_braces(tokens: Sequence[Token]) -> Dict[int, int]:
+    """`const { a, b } = x`: ngoặc nhọn của mẫu phá cấu trúc không cắt câu lệnh."""
+    found: Dict[int, int] = {}
+    previous: Optional[Token] = None
+    for index, token in enumerate(tokens):
+        if token.kind == NEWLINE:
+            continue
+        if (
+            token.kind == OP
+            and token.text == "{"
+            and not token.in_string
+            and previous is not None
+            and previous.kind == IDENT
+            and previous.text in ("const", "let", "var")
+        ):
+            depth = 0
+            for cursor in range(index, min(len(tokens), index + 256)):
+                inner = tokens[cursor]
+                if inner.kind != OP or inner.in_string:
+                    continue
+                if inner.text == "{":
+                    depth += 1
+                elif inner.text == "}":
+                    depth -= 1
+                    if depth == 0:
+                        after = cursor + 1
+                        while after < len(tokens) and tokens[after].kind == NEWLINE:
+                            after += 1
+                        if after < len(tokens) and tokens[after].kind == OP and tokens[after].text in ("=", ":"):
+                            found[index] = cursor
+                        break
+                elif inner.text == ";":
+                    break
+        previous = token
+    return found
 
 
 def _continues(token: Token) -> bool:

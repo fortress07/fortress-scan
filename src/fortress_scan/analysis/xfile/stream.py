@@ -196,3 +196,83 @@ class Stream:
 
     def idents(self, start: int, end: int) -> List[int]:
         return [i for i in range(start, end) if self.is_ident(i)]
+
+
+# Khối mà thân của nó có thể KHÔNG chạy: gán lại bên trong không xóa được vết
+# nhiễm đã có từ trước khối, vì nhánh còn lại vẫn mang giá trị cũ đi tiếp.
+_CONDITIONAL_HEADS = frozenset(
+    {"if", "else", "elif", "for", "foreach", "while", "switch", "case", "catch", "select", "unless", "until", "except"}
+)
+
+
+class TokenIndex:
+    """Vị trí token trong tệp và những khối điều kiện bao quanh nó."""
+
+    def __init__(self, tokens: Sequence[Token]) -> None:
+        self.tokens = tokens
+        self.positions: dict = {}
+        for index, token in enumerate(tokens):
+            if token.kind == NEWLINE:
+                continue
+            self.positions.setdefault((token.line, token.column), index)
+        self._stream: Optional[Stream] = None
+        self._conditional: Optional[dict] = None
+
+    @property
+    def stream(self) -> Stream:
+        if self._stream is None:
+            self._stream = Stream(self.tokens)
+        return self._stream
+
+    def index_of(self, token: Token) -> Optional[int]:
+        return self.positions.get((token.line, token.column))
+
+    def _brace_is_conditional(self, brace: int) -> bool:
+        stream = self.stream
+        cursor = brace - 1
+        first = ""
+        texts = []
+        steps = 0
+        while cursor >= 0 and steps < 96:
+            steps += 1
+            token = self.tokens[cursor]
+            if token.kind == NEWLINE:
+                # Ngôn ngữ không cần ngoặc quanh điều kiện ( Go ): đầu khối
+                # nằm gọn trên một dòng.
+                if texts and not stream.is_op(cursor - 1, "(", ",", "&&", "||", "+", "."):
+                    break
+                cursor -= 1
+                continue
+            if token.kind == OP and not token.in_string:
+                if token.text in (";", "{", "}"):
+                    break
+                if token.text in (")", "]"):
+                    opener = stream.match[cursor]
+                    if 0 <= opener < cursor:
+                        cursor = opener - 1
+                        texts.append(token.text)
+                        continue
+            if token.kind == IDENT and not token.in_string:
+                first = token.text
+                texts.append(token.text)
+            else:
+                texts.append(token.text)
+            cursor -= 1
+        return first in _CONDITIONAL_HEADS or "else" in texts
+
+    def conditional(self, token: Token) -> bool:
+        index = self.index_of(token)
+        if index is None:
+            return False
+        if self._conditional is None:
+            self._conditional = {}
+        brace = self.stream.parent[index]
+        while brace >= 0:
+            known = self._conditional.get(brace)
+            if known is None:
+                known = self._brace_is_conditional(brace)
+                self._conditional[brace] = known
+            if known:
+                return True
+            brace = self.stream.parent[brace]
+        return False

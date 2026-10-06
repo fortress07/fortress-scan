@@ -18,7 +18,6 @@ from ...core.model import Category
 from ..generic.lexer import NEWLINE, Token
 from .model import Callee, FunctionDef, SinkHit, SourceReturn, Summary
 from .project import QueueTaint, XProject
-from .stream import Stream
 
 REPORT = "report"
 SUMMARY = "summary"
@@ -40,12 +39,8 @@ class FileContext:
         self.function = function
         self.facts = project.facts.get(path)
         self._tokens = tokens
-        self._stream: Optional[Stream] = None
-        self._positions: Dict[Tuple[int, int], int] = {}
-        for index, token in enumerate(tokens):
-            if token.kind == NEWLINE:
-                continue
-            self._positions.setdefault((token.line, token.column), index)
+        self.index = project.token_index(path, tokens)
+        self._positions = self.index.positions
         functions = self.facts.functions if self.facts is not None else []
         self._spans: List[Tuple[int, int, FunctionDef]] = sorted(
             ((f.body_start, f.body_end, f) for f in functions if not f.abstract),
@@ -94,9 +89,7 @@ class FileContext:
         index = self._positions.get((anchor.line, anchor.column))
         if index is None:
             return None
-        if self._stream is None:
-            self._stream = Stream(self._tokens)
-        stream = self._stream
+        stream = self.index.stream
         separators = (".", "?.", "->", "::")
         _, after = stream.chain_at(index, separators)
         opener = stream.sig(after)

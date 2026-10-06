@@ -552,3 +552,57 @@ def test_diff_scope_keeps_cross_file_finding_when_caller_changes(tmp_path: Path)
     changed = diffscope.parse_patch(patch)
     findings = scan(str(tmp_path), Config(changed_lines=changed)).findings
     assert [f.rule_id for f in findings] == ["FSB-CMD-001"]
+
+
+# ------------------------------------------------------- ngữ nghĩa luồng chung
+def test_reassignment_inside_a_branch_does_not_clear_taint(tmp_path: Path):
+    _project(
+        tmp_path,
+        {
+            "main.go": (
+                "package main\n"
+                "import (\n\t\"html/template\"\n\t\"net/http\"\n)\n"
+                "func search(r *http.Request, strict bool) template.HTML {\n"
+                "\tterm := r.FormValue(\"t\")\n"
+                "\tif strict {\n"
+                "\t\tterm = template.HTMLEscapeString(term)\n"
+                "\t}\n"
+                "\treturn template.HTML(\"<p>\" + term + \"</p>\")\n"
+                "}\n"
+                "func clean(r *http.Request) template.HTML {\n"
+                "\tterm := r.FormValue(\"t\")\n"
+                "\tterm = template.HTMLEscapeString(term)\n"
+                "\treturn template.HTML(\"<p>\" + term + \"</p>\")\n"
+                "}\n"
+            )
+        },
+    )
+    findings = _findings(tmp_path)
+    assert [f.line for f in _at(findings, "main.go", "FSB-XSS-001")] == [11]
+
+
+def test_js_destructuring_and_regexp_exec(tmp_path: Path):
+    _project(
+        tmp_path,
+        {
+            "app.js": (
+                "const cp = require('child_process');\n"
+                "const app = require('express')();\n"
+                "app.get('/a', (req, res) => {\n"
+                "  const m = /a(b)/.exec(req.query.x);\n"
+                "  const re = new RegExp('x');\n"
+                "  res.json([m, re.exec(req.query.y)]);\n"
+                "});\n"
+                "app.get('/b', (req, res) => {\n"
+                "  const { host, port = 80 } = req.query;\n"
+                "  cp.exec('ping ' + host);\n"
+                "});\n"
+                "app.get('/c', (req, res) => {\n"
+                "  let [first, second] = [req.body.a, 'x'];\n"
+                "  cp.execSync('ls ' + first);\n"
+                "});\n"
+            )
+        },
+    )
+    findings = _findings(tmp_path)
+    assert sorted((f.rule_id, f.line) for f in findings) == [("FSB-CMD-001", 10), ("FSB-CMD-001", 14)]
