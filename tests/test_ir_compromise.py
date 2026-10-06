@@ -371,9 +371,23 @@ def test_scrub_returns_the_source_for_unknown_languages() -> None:
 # sau nhảy theo `str.find` và nhớ vị trí kế tiếp của từng token. Phép nhớ đó
 # chính là thứ giữ cho chi phí tuyến tính, và nếu ai bỏ nó đi thì mỗi chuỗi
 # sẽ kéo cả bộ token quét lại từ đầu -- đúng hình dạng bài này canh.
-_SCRUB_SMALL = 2_000
+_SCRUB_SMALL = 8_000
 _SCRUB_LARGE = 256_000
-_SCRUB_MAX_SECONDS = 1.0
+
+# Trần tuyệt đối đặt cao hơn của test_regex_complexity.py ( 1,0 giây ) là có
+# lý do đo được, không phải nới tay: các mẫu regex ở đó chạy trong C với
+# 10-25 nanô giây mỗi ký tự, còn bộ xóa này là một vòng lặp Python và đo được
+# khoảng 460 nanô giây mỗi ký tự ở hình dạng xấu nhất -- 117 mili giây cho
+# 256 nghìn ký tự trên máy dựng bản này. Runner Windows và macOS chậm hơn vài
+# lần, nên trần 1,0 giây sẽ đỏ ngẫu nhiên, và một bài đo đỏ ngẫu nhiên thì cả
+# đội học cách chạy lại cho tới khi nó xanh. Trần 3,0 giây vẫn cách một lỗi
+# bậc hai hai bậc độ lớn: ở cỡ này bậc hai tốn hàng phút.
+_SCRUB_MAX_SECONDS = 3.0
+
+# Cỡ nhỏ 8 nghìn chứ không 2 nghìn: ở 2 nghìn ký tự phép đo rơi xuống dưới sàn
+# nhiễu, phép so tỉ lệ bị bỏ qua, và bài kiểm tra chỉ còn lại một nửa mà không
+# ai biết. Tỉ lệ cỡ là 32, nên tuyến tính cho khoảng 32 còn bậc hai cho khoảng
+# 1.024; hệ số 4 nằm gọn giữa hai lớp.
 _SCRUB_MAX_SCALE = (_SCRUB_LARGE / _SCRUB_SMALL) * 4
 _SCRUB_NOISE_FLOOR = 1e-3
 
