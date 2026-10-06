@@ -17,7 +17,7 @@ from ...core.budget import Budget
 from ...core.model import Confidence, Severity, StepKind
 from ..base import AnalysisUnit, FindingBuilder
 from ..python.imports import ImportResolver, dotted_name
-from . import config_python, words
+from . import config_python, web_python, words
 
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _MAX_LITERAL_DEPTH = 4
@@ -233,6 +233,7 @@ class PythonWeaknessChecks:
         self.assignments: List[ast.AST] = []
         self.constants: List[ast.Constant] = []
         self.compares: List[ast.Compare] = []
+        self.tuples: List[ast.Tuple] = []
         self.functions: List[ast.AST] = []
         self.docstrings: Set[int] = set()
         # Dòng gán hằng đã được báo dưới dạng khoá viết cứng; không báo lại nó
@@ -263,6 +264,7 @@ class PythonWeaknessChecks:
         self._check_random()
         self._check_secrets()
         config_python.check_jwt(self)
+        web_python.check(self)
 
     def _index(self, tree: ast.AST) -> None:
         for parent in ast.walk(tree):
@@ -288,6 +290,8 @@ class PythonWeaknessChecks:
                 self.constants.append(parent)
             elif isinstance(parent, ast.Compare):
                 self.compares.append(parent)
+            elif isinstance(parent, ast.Tuple):
+                self.tuples.append(parent)
             elif isinstance(parent, _FUNCTIONS):
                 self.functions.append(parent)
                 for argument in parent.args.args + parent.args.kwonlyargs:

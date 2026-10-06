@@ -614,6 +614,105 @@ def names_a_guard(identifier: str) -> bool:
     return names_an_option(identifier) or any(word in _GUARD_WORDS for word in split_words(identifier))
 
 
+# Điều kiện bao quanh cho thấy origin đã được so với một danh sách trước khi
+# được dội lại: `if origin_match:`, `if (allowedOrigins.includes(origin))`.
+_ALLOWLIST_WORDS = frozenset(
+    {
+        "allowed",
+        "allowlist",
+        "allowedorigins",
+        "whitelist",
+        "whitelisted",
+        "permitted",
+        "trusted",
+        "valid",
+        "match",
+        "matched",
+        "matches",
+        "known",
+        "safe",
+        "includes",
+        "contains",
+        "member",
+        "index",
+        "indexof",
+        "in",
+    }
+)
+
+
+def names_an_allowlist(identifier: str) -> bool:
+    return any(word in _ALLOWLIST_WORDS for word in split_words(identifier))
+
+
+# Sau khi bỏ neo và tiền tố giao thức, một mẫu origin khớp MỌI tên miền khi
+# phần còn lại không có chữ nào ràng buộc được host. `.*\.example\.com` vẫn còn
+# chữ "example" nên không vào đây ( nó là lỗi khác: thiếu neo cuối ).
+_ANY_ORIGIN_RESIDUE = re.compile(r"^[.*+?()\[\]{}|,:\\/\-\d\s]*$")
+_ANY_ORIGIN_MARKERS = (".*", ".+", "\\w")
+_ORIGIN_SCHEMES = ("https?", "https", "http")
+
+
+def matches_any_origin(pattern: str) -> Optional[str]:
+    """`*`, `.*`, `^.*$`, `^https?://.*$`: mẫu không loại được origin nào.
+
+    Trả về mô tả ngắn để đưa vào bằng chứng, hoặc None khi mẫu thật sự giới hạn.
+    """
+    text = pattern.strip()
+    if not text:
+        return None
+    if text == "*":
+        return "mọi origin ( '*' )"
+    residue = text[1:] if text.startswith("^") else text
+    if residue.endswith("$") and not residue.endswith("\\$"):
+        residue = residue[:-1]
+    for scheme in _ORIGIN_SCHEMES:
+        for separator in ("://", ":\\/\\/"):
+            if residue.startswith(scheme + separator):
+                residue = residue[len(scheme) + len(separator) :]
+                break
+    if not any(marker in residue for marker in _ANY_ORIGIN_MARKERS):
+        return None
+    if not _ANY_ORIGIN_RESIDUE.match(residue.replace("\\w", "")):
+        return None
+    return "mẫu %r khớp mọi origin" % pattern
+
+
+# Cookie mang phiên đăng nhập. Cookie chống CSRF thì ngược lại: JavaScript của
+# chính trang PHẢI đọc được nó để gắn vào header, nên thiếu HttpOnly là đúng.
+_SESSION_COOKIE_WORDS = frozenset(
+    {
+        "session",
+        "sessionid",
+        "sessid",
+        "jsessionid",
+        "phpsessid",
+        "sess",
+        "sid",
+        "token",
+        "jwt",
+        "auth",
+        "authorization",
+        "login",
+        "remember",
+        "credential",
+        "credentials",
+        "apikey",
+    }
+)
+_SCRIPT_READABLE_COOKIE_WORDS = frozenset({"csrf", "xsrf", "csrftoken", "antiforgery"})
+
+
+def names_a_session_cookie(name: str) -> Optional[str]:
+    parts = split_words(name)
+    if any(word in _SCRIPT_READABLE_COOKIE_WORDS for word in parts):
+        return None
+    for word in parts:
+        if word in _SESSION_COOKIE_WORDS:
+            return word
+    return None
+
+
 # Tệp bản dịch: `'pass': 'Adgangskode'` là chữ "mật khẩu" bằng tiếng Đan Mạch.
 _TRANSLATION_DIRECTORIES = frozenset({"i18n", "l10n", "locale", "locales", "lang", "langs", "translations"})
 

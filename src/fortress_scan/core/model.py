@@ -54,6 +54,8 @@ class Category(str, Enum):
     TLS = "tls"
     SECRET = "hardcoded-secret"
     JWT = "jwt"
+    CORS = "cors"
+    COOKIE = "cookie"
 
 
 class StepKind(str, Enum):

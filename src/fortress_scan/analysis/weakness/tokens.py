@@ -41,7 +41,7 @@ from ...languages import (
 from ..base import AnalysisUnit, FindingBuilder
 from ..generic.lexer import IDENT, NEWLINE, NUMBER, OP, STRING, Token, tokenize
 from ..generic.profiles import spec_for
-from . import config_tokens, words
+from . import config_tokens, web_tokens, words
 
 _SEPARATORS = frozenset({".", "::", "->", "?."})
 _ASSIGN = frozenset({"=", ":=", "+=", ".=", "?="})
@@ -699,6 +699,7 @@ class _Scan:
         self._check_tls()
         self._check_secrets()
         config_tokens.check(self)
+        web_tokens.check(self)
 
     def _match_brackets(self) -> None:
         stack: List[int] = []

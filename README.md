@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/47-rule-e05d44?style=flat-square)](#-47-rule-trên-23-họ-lỗ-hổng)
-[![families](https://img.shields.io/badge/23-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-47-rule-trên-23-họ-lỗ-hổng)
+[![rules](https://img.shields.io/badge/49-rule-e05d44?style=flat-square)](#-49-rule-trên-25-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/25-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-49-rule-trên-25-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1520-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1614-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>47</b><br/><sub>rule</sub></td>
-<td align="center"><b>23</b><br/><sub>họ lỗ hổng</sub></td>
+<td align="center"><b>49</b><br/><sub>rule</sub></td>
+<td align="center"><b>25</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1520</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>1614</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="47 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="49 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,13 +90,13 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="47 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="49 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
 | :--- | :--- | :--- |
 | 🟣 **A01 Broken Access Control** | `FSB-PATH-001` · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
-| 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) | A05:2021 |
+| 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) · `FSB-CORS-001` ( CORS mở kèm credentials ) · `FSB-COOKIE-001` ( cookie phiên thiếu HttpOnly ) | A05:2021 |
 | 🟢 **A03 Software Supply Chain Failures** | `FSB-SUP-001` · `FSB-SUP-002` · `FSB-CI-003` · `FSB-CI-004` | A08:2021 |
 | 🟡 **A04 Cryptographic Failures** | `FSB-CRYPTO-001` … `FSB-CRYPTO-008`: hàm băm và thuật toán đã bị phá, ECB, IV/nonce/muối hằng, khoá viết cứng, PRNG đoán được, khoá RSA ngắn | A02:2021 |
 | 🔴 **A05 Injection** | 20 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression | A03:2021 |
@@ -144,7 +144,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 47 rule trên 23 họ lỗ hổng
+## 🔍 49 rule trên 25 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -176,6 +176,8 @@ nên bảng này không thể lệch khỏi code.
 | **Tắt xác minh TLS** | 🟠 `FSB-TLS-001` | `requests.get(url, verify=False)`, `rejectUnauthorized: false` |
 | **Secret viết cứng** | 🟠 `FSB-SECRET-001` | `DB_PASSWORD = "..."`, token AWS / GitHub / Stripe trong mã |
 | **JWT không xác minh** | 🟠 `FSB-JWT-001` | `jwt.decode(t, options={"verify_signature": False})`, `algorithms: ['none']` |
+| **CORS mở kèm credentials** | 🟡 `FSB-CORS-001` | `CORS(app, supports_credentials=True)`, `cors({ origin: true, credentials: true })` |
+| **Cookie phiên thiếu HttpOnly** | 🔵 `FSB-COOKIE-001` | `res.cookie('session', t)`, `httponly=False` |
 
 <sub>🔴 critical · 🟠 high · 🟡 medium · 🔵 low</sub>
 
@@ -215,9 +217,22 @@ thể, nên mỗi kiểm tra khớp đúng công tắc đó chứ không khớp 
 Thêm vào đó, `YAML.unsafe_load` và `Psych.unsafe_load` của Ruby ( bản giữ hành vi cũ sau khi Psych 4
 làm `YAML.load` an toàn ) giờ được tính là bộ giải tuần tự nguy hiểm của `FSB-DESER-001` / `-002`.
 
+### 🌍 CORS phản chiếu origin và cookie phiên
+
+Hai họ này cũng là **tổ hợp hai công tắc**, không phải một lời gọi: origin mở chỉ thành lỗ hổng khi
+có credentials đi kèm, còn `HttpOnly` chỉ đáng nói khi cookie đó mang phiên đăng nhập. Hai bảng
+dưới đây được dựng bằng cách **chạy thư viện thật rồi đọc header trả về** ( flask-cors 6.0.5,
+Starlette 1.7.0, django-cors-headers 4.9.0, `cors` 2.8.6 với express 5, Flask 3.1.3, Django 6.1.1,
+PHP 8.3 ), chứ không suy từ tài liệu:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-CORS-001` | credentials được bật **và** origin không bị giới hạn: flask-cors `supports_credentials=True` ( mặc định origins là `*` ), Starlette `allow_origins=['*']` hay `allow_origin_regex='.*'` kèm `allow_credentials=True`, `CORS_ALLOW_ALL_ORIGINS` kèm `CORS_ALLOW_CREDENTIALS`, `cors({ origin: true, credentials: true })` kể cả khi origin là regex khớp mọi thứ hay một callback luôn trả `true`, Spring `allowedOriginPatterns("*")` kèm `allowCredentials(true)`, ASP.NET `SetIsOriginAllowed(_ => true)` kèm `AllowCredentials()`, Go `AllowOriginFunc` luôn trả `true` kèm `AllowCredentials: true`, hoặc tự ghi `Access-Control-Allow-Origin` từ header `Origin` | `Access-Control-Allow-Origin: *` -- **trình duyệt tự bỏ** phản hồi khi request có credentials, nên `cors({ origin: '*', credentials: true })` không phải lỗ hổng này; tổ hợp mà thư viện **tự ném lỗi** ( Spring `allowedOrigins("*")`, ASP.NET `AllowAnyOrigin()`, flask-cors `send_wildcard=True`, cả ba khi đi kèm credentials ); danh sách origin đóng; mẫu có neo và có tên miền thật như `^https://.*\.example\.com$`; hàm quyết định origin có kiểm tra thật; chỗ ghi header nằm sau một phép so với allowlist |
+| `FSB-COOKIE-001` | cookie **mang phiên** ( tên chứa session, token, jwt, auth, sid, remember ) mà `HttpOnly` bị tắt thẳng, hoặc vắng mặt ở nơi mặc định của framework là tắt -- đã kiểm trực tiếp: Flask và Django `set_cookie`, express `res.cookie`, PHP `setcookie` và struct `http.Cookie` của Go đều không có HttpOnly khi không truyền gì | cookie `csrf` / `xsrf`, vì JavaScript của chính trang phải đọc được chúng; express-session, nơi mặc định đã BẬT HttpOnly nên chỉ bắt lúc bị tắt thẳng; cờ được đặt ở dòng sau ( `c.HttpOnly = true` ); biến cục bộ trùng tên như `$httponly = false;` mà dòng đó chưa cho biết sẽ đi đâu |
+
 ### 📏 Thử trên mã thật
 
-Mười hai rule trên được chạy trên **28 dự án thật**, rồi sửa đến khi mã chạy thật của các dự án
+Mười bốn rule trên được chạy trên **28 dự án thật**, rồi sửa đến khi mã chạy thật của các dự án
 sạch không còn báo sai:
 
 | Dự án | Tệp | Phát hiện ở mã chạy thật | Ghi chú |
@@ -230,11 +245,12 @@ sạch không còn báo sai:
 | mastodon | 4349 | 4 | mật khẩu admin cho máy dev trong `db/seeds`, 2 TLS độ tin cậy **thấp** ( chỉ khi người vận hành chọn `no-verify` ) |
 | sinatra | 178 | 1 | `verify_mode = VERIFY_NONE` trong `sinatra-contrib/lib/sinatra/runner.rb` |
 | httpx · laravel/framework · saleor · golang-jwt | 7383 | 5 | tất cả ở độ tin cậy **thấp**: mã hiện thực tuỳ chọn, hoặc đọc trước claims để định tuyến |
-| DVWA · WebGoat · juice-shop · NodeGoat | 1427 | 58 | ứng dụng **cố tình có lỗ hổng**: ECB, khoá JWT viết cứng, MD5 mật khẩu, `Math.random()` làm secret, `parse()` jjwt nhận token không ký |
+| DVWA · WebGoat · juice-shop · NodeGoat | 1427 | 63 | ứng dụng **cố tình có lỗ hổng**: ECB, khoá JWT viết cứng, MD5 mật khẩu, `Math.random()` làm secret, `parse()` jjwt nhận token không ký, cookie `token` của juice-shop đọc được bằng JavaScript |
 
 Tổng cộng **28751 tệp**. Các báo nhầm tìm ra trong lúc thử ( hasher bọc PBKDF2 của saleor, URL CSDL
 `localhost` mặc định, khoá tài nguyên bản địa hoá, tệp bản dịch của elfinder, thư mục
-`Newtonsoft.Json.Tests` ) đều đã được sửa và khoá lại bằng kiểm tra hồi quy.
+`Newtonsoft.Json.Tests`, biến cục bộ `$httponly` của DVWA, bộ xử lý CORS có allowlist của saleor )
+đều đã được sửa và khoá lại bằng kiểm tra hồi quy.
 
 > [!NOTE]
 > Có hai thứ **phân tích tĩnh không quyết định được**, và rule nói thẳng điều đó qua độ tin cậy

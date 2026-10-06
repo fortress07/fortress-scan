@@ -36,6 +36,20 @@ PEM trong `security/redaction.py` giờ che cả phần thân base64, không ch�
 - `YAML.unsafe_load`, `Psych.unsafe_load` và `Oj.object_load` của Ruby được thêm vào bộ giải tuần
   tự nguy hiểm của `FSB-DESER-001` / `-002`.
 
+### CORS và cookie phiên
+
+- `FSB-CORS-001`: phản hồi vừa dội lại `Origin` của người gửi, vừa đặt
+  `Access-Control-Allow-Credentials: true`, nên mọi trang web đọc được dữ liệu sau đăng nhập.
+  Nhận dạng flask-cors, Starlette / FastAPI, django-cors-headers, gói `cors` của express, Spring
+  `allowedOriginPatterns`, ASP.NET `SetIsOriginAllowed`, `AllowOriginFunc` của middleware Go, và
+  cả lối tự ghi header trên mọi ngôn ngữ đọc theo token.
+- `FSB-COOKIE-001`: cookie mang phiên đăng nhập thiếu cờ `HttpOnly`, hoặc bị tắt thẳng. Mặc định
+  không có HttpOnly của `set_cookie` ( Flask, Django ), `res.cookie` ( express ), `setcookie`
+  ( PHP ) và struct `http.Cookie` ( Go ) đều đã được kiểm bằng cách chạy thật rồi đọc header.
+- Hình `Access-Control-Allow-Origin: *` và những tổ hợp mà thư viện tự ném lỗi ( Spring
+  `allowedOrigins("*")`, ASP.NET `AllowAnyOrigin()`, flask-cors `send_wildcard=True`, cả ba khi đi
+  kèm credentials ) **không** bị báo, vì chúng không chạy được hoặc trình duyệt tự từ chối.
+
 ### Ngữ cảnh tệp
 
 - Tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như `RegistrationUITest.java`, `APITests.java`.

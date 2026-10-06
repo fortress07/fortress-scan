@@ -440,6 +440,14 @@ TRIGGERS.update(
             "var s = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };\n",
         ),
         "FSB-JWT-001": (PYTHON, "import jwt\nclaims = jwt.decode(token, key, algorithms=['HS256', 'none'])\n"),
+        "FSB-CORS-001": (
+            PYTHON,
+            "from flask_cors import CORS\nCORS(app, origins='*', supports_credentials=True)\n",
+        ),
+        "FSB-COOKIE-001": (
+            PYTHON,
+            "def login(response, token):\n    response.set_cookie('session_token', token)\n",
+        ),
     }
 )
 
@@ -476,6 +484,14 @@ SAFE_VARIANTS.update(
             "var s = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };\n",
         ),
         "FSB-JWT-001": (PYTHON, "import jwt\nclaims = jwt.decode(token, key, algorithms=['HS256'])\n"),
+        "FSB-CORS-001": (
+            PYTHON,
+            "from flask_cors import CORS\nCORS(app, origins=['https://app.example'], supports_credentials=True)\n",
+        ),
+        "FSB-COOKIE-001": (
+            PYTHON,
+            "def login(response, token):\n    response.set_cookie('session_token', token, httponly=True)\n",
+        ),
     }
 )
 

@@ -987,6 +987,68 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
             "https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html",
         ),
     ),
+    RuleSpec(
+        id="FSB-CORS-001",
+        title="CORS phản chiếu mọi origin kèm theo thông tin đăng nhập",
+        category=Category.CORS,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-942", "CWE-346"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Phản hồi vừa dội lại Origin của người gửi vào Access-Control-Allow-Origin, vừa đặt "
+            "Access-Control-Allow-Credentials: true. Hai thứ đó đi cùng nhau có nghĩa là trang web "
+            "nào cũng gọi được API này bằng cookie của nạn nhân VÀ đọc được nội dung trả về, nên dữ "
+            "liệu sau đăng nhập ( thông tin cá nhân, token CSRF, kết quả truy vấn ) chảy sang tên "
+            "miền của kẻ tấn công. Cấu hình để Access-Control-Allow-Origin là đúng ký tự '*' KHÔNG "
+            "bị báo: trình duyệt từ chối '*' khi request có credentials, nên đó không phải lỗ hổng "
+            "này. Khai thác cần cookie đi kèm được request khác site, tức là cookie đặt "
+            "SameSite=None -- đúng trường hợp của phần lớn API bật CORS kèm credentials -- hoặc "
+            "HTTP Basic / client cert."
+        ),
+        remediation=(
+            "Liệt kê thẳng những origin được phép thay vì dội lại Origin hoặc dùng mẫu '*': "
+            "CORS(app, origins=['https://app.example'], supports_credentials=True), "
+            "cors({ origin: ['https://app.example'], credentials: true }), "
+            "allowedOrigins('https://app.example') của Spring, WithOrigins(...) của ASP.NET. Khi "
+            "danh sách phải động thì so khớp Origin với một allowlist đóng rồi mới ghi header, và "
+            "luôn thêm Vary: Origin để cache không trộn phản hồi của hai origin."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/942.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-COOKIE-001",
+        title="Cookie phiên hoặc token được đặt mà không có cờ HttpOnly",
+        category=Category.COOKIE,
+        severity=Severity.LOW,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-1004",),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Cookie mang phiên đăng nhập hoặc token được ghi mà không có HttpOnly, hoặc có nhưng bị "
+            "tắt thẳng ( httponly=False, httpOnly: false, setHttpOnly(false) ). Mặc định của "
+            "Flask, Django response.set_cookie và express res.cookie đều là KHÔNG có HttpOnly, nên "
+            "chỉ cần thiếu tham số là cookie đọc được bằng document.cookie. Đây là lớp phòng thủ "
+            "thứ hai: một mình nó không cho ai vào, nhưng khi có XSS thì nó quyết định kẻ tấn công "
+            "chỉ hành động trong phiên của nạn nhân hay mang hẳn cookie phiên đi dùng chỗ khác. "
+            "Cookie tên csrf hay xsrf không bị báo vì JavaScript của chính trang phải đọc được "
+            "chúng để gắn vào request."
+        ),
+        remediation=(
+            "Đặt HttpOnly cho mọi cookie mà JavaScript của trang không cần đọc: "
+            "response.set_cookie(name, value, httponly=True, secure=True, samesite='Lax'), "
+            "res.cookie(name, value, { httpOnly: true, secure: true, sameSite: 'lax' }), "
+            "cookie.setHttpOnly(true). Với Flask và Django, giữ SESSION_COOKIE_HTTPONLY = True; "
+            "với PHP, session.cookie_httponly = 1."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/1004.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+        ),
+    ),
 )
 
 RULES: Dict[str, RuleSpec] = {rule.id: rule for rule in _RULE_LIST}
