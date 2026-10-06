@@ -8,6 +8,41 @@ Số bản theo [Semantic Versioning](https://semver.org/lang/vi/). Từ 0.1.0 t
 
 ---
 
+## Chưa phát hành
+
+### Thêm: phân tích tệp thực thi tìm dấu hiệu ransomware ( beta )
+
+Lệnh con mới `fortress-scan binary <tệp hoặc thư mục>` đọc thẳng byte của một tệp đã biên dịch
+và chấm xem nó có mang chân dung ransomware hay không. Vẫn **không phụ thuộc thư viện ngoài**,
+vẫn **không nối mạng**, và **không bao giờ chạy tệp được phân tích**: tệp chỉ được mở đúng một
+lần ở chế độ đọc, có bài kiểm tra đếm số lần `open()` để chắc điều đó.
+
+- **Đọc 8 họ định dạng** bằng Python thuần: PE ( kể cả metadata .NET ), ELF ( 32 / 64, LE / BE ),
+  Mach-O ( kể cả universal ), JAR / WAR / APK / zipapp, Java `.class`, PyInstaller CArchive,
+  buildinfo của Go, và script PowerShell / batch / VBScript / JScript / HTA / shell / Python kèm
+  bóc base64 nhiều lớp, gzip, `-EncodedCommand` và UTF-16.
+- **39 dấu hiệu** ( 14 cấu trúc, 16 năng lực, 9 nội dung ) trên **25 kỹ thuật ATT&CK**, mỗi dấu
+  hiệu kèm bằng chứng, vị trí trong tệp, lý do, trường hợp lành có thể gây ra nó, và việc nên làm.
+- **Kết luận theo trụ, không cộng điểm.** Entropy cao và dấu packer không bao giờ tự đẩy kết luận
+  quá mức "cần lưu ý", vì một trình cài đặt bị nén có đúng chân dung đó.
+- **Chặn trần cho tài liệu phát hiện.** Tệp dày đặc mã ATT&CK, mã CWE và cú pháp regex bị chặn ở
+  mức "đáng ngờ" và được nói rõ lý do, nên luật Sigma, luật YARA hay chính `catalogue.py` của công
+  cụ không bị gọi là ransomware. Trần chỉ áp cho script và tệp văn bản.
+- **Báo cáo console, JSON và Markdown**, có `--fail-on`, `--only-flagged`, `--max-size`,
+  `--max-files`, và mã thoát dùng được cho cổng CI. Tên tệp và chuỗi trong tệp đều được trung hoà
+  trước khi in, nên một tệp đặt tên bằng chuỗi thoát terminal không viết đè được lên báo cáo.
+- **Đo trên 1.108 tệp lành** ( 626 MB ): 0 tệp đạt mức "đáng ngờ" trở lên, 14 tệp "cần lưu ý",
+  1.094 tệp "sạch". Đo lại bằng `tools/measure_binary_corpus.py`. Trên 11 mẫu dựng từng byte
+  trong test, 11 / 11 đạt từ mức "nhiều khả năng" trở lên.
+- **206 bài kiểm tra riêng** cho phần này, gồm đột biến từng byte có seed cố định, cắt cụt tệp ở
+  mọi độ dài, header nói dối, zip bomb, Zip Slip, và một bài quét AST chắc rằng cả gói không gọi
+  `eval`, `exec`, `marshal`, `pickle`, `subprocess` hay `socket`.
+
+Đây là bản **beta**: không dịch ngược lệnh máy, không bung tệp đã pack, không kiểm tính hợp lệ
+của chữ ký số, và không có cơ sở dữ liệu họ mã độc. README nói rõ từng giới hạn một.
+
+---
+
 ## 0.1.0, bản chính thức đầu tiên
 
 Bản này khép lại giai đoạn thử nghiệm. Trước nó, công cụ đã đi qua nhiều vòng dựng và tự kiểm
