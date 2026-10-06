@@ -8,6 +8,73 @@ Số bản theo [Semantic Versioning](https://semver.org/lang/vi/). Từ 0.1.0 t
 
 ---
 
+## Chưa phát hành
+
+### Truy vết xâm nhập: 11 rule trả lời "đã có người vào đây chưa"
+
+Mọi rule trước đây trả lời "mã này có thể bị khai thác". Họ `FSB-IR` trả lời một câu khác:
+"đã có người khai thác xong và để lại cái gì". Khác biệt đó đổi cả quy trình xử lý của người
+đọc, nên nó được tách thành ba họ riêng ( `webshell`, `persistence`, `access-backdoor` ) chứ
+không gộp vào một nhãn chung với injection.
+
+| Nhóm | Rule | Bắt được |
+| :--- | :--- | :--- |
+| Webshell và cửa hậu | `FSB-IR-001` `-002` `-003` | tệp nhỏ trong thư mục tải lên nhận lệnh từ request rồi giải mã và thực thi; dropper; cổng mật khẩu cứng trước sink |
+| Cơ chế trụ lại | `FSB-IR-010` `-011` `-012` `-013` | `cron.d` tải script về chạy; `ExecStart` trỏ vào `/tmp`; khối base64 giải ra rồi chạy; `ld.so.preload` |
+| Cửa hậu truy cập | `FSB-IR-014` `-015` `-016` | khoá SSH mang `command=`; tài khoản thứ hai UID 0; `NOPASSWD: ALL` |
+| Thực thi trong thư mục tải lên | `FSB-IR-017` | `.htaccess` bật `AddHandler` ngay trong `uploads/` |
+
+### Đọc được những tệp mà không ai coi là mã nguồn
+
+Thêm lớp tệp `ir-artifact`: `crontab`, unit `systemd` ( `.service` `.timer` `.socket` ), tệp rc
+của shell, `authorized_keys`, `ld.so.preload`, `sudoers`, `passwd`, `.htaccess`, cấu hình
+`nginx`/`apache`, cùng nội dung của `cron.d`, `profile.d`, `sudoers.d`, `init.d`,
+`sites-enabled`. Không tệp nào trong số đó có phần mở rộng mà bảng ngôn ngữ nhận ra, nên **bộ
+duyệt cây trước đây không hề liệt kê chúng** - mà đó đúng là nơi cơ chế trụ lại được cắm vào.
+
+Phép nhận theo vị trí luôn nhường cho phép nhận theo tên: `scripts/init.d/x.py` vẫn là Python.
+Thiếu phép nhường đó thì một thư mục trùng tên sẽ âm thầm gỡ cả cây con khỏi phần dò injection.
+
+### Kết luận trên cả tệp, không trên một dòng
+
+Bộ dò webshell tính điểm theo năm trụ trên toàn tệp ( đầu vào từ xa, nơi thực thi, lớp làm rối,
+dấu che, cổng mật khẩu ) thay vì khớp mẫu theo dòng. Khi chỉ có *đầu vào tới sink* mà không trụ
+nào nói về việc cắm ghép, họ `FSB-IR` **im lặng** và nhường cho các rule injection: gọi một lỗi
+lập trình là "webshell" sẽ đẩy một ca ứng cứu đi truy vụ xâm nhập không có thật.
+
+Mã đi mượn và mã sinh tự động không bao giờ bị kết luận là bị cắm. Ở đó phép hạ một nấc của
+`calibration` là chưa đủ, vì câu "có người cắm tệp này vào" sai hẳn về bản chất chứ không chỉ
+kém chắc.
+
+### Một lỗ hổng phát hiện trên chính bộ dò, tìm bằng cách tự quét
+
+Bản đầu của bộ dò webshell **báo nhầm vào mã của chính nó**: `indicators.py` liệt kê `eval(` và
+`$_POST` dưới dạng chuỗi, mà phép so chuỗi con không phân biệt được *gọi* với *nhắc tới*.
+`test_samples_corpus.py` bắt được ngay lần chạy đầu. Cùng lớp báo nhầm đó sẽ xảy ra trên mọi bộ
+quy tắc WAF, mọi luật YARA và mọi tài liệu viết về webshell.
+
+Phép vá là một bộ xóa nội dung chuỗi và chú thích **giữ nguyên độ dài**. Giữ độ dài là điều kiện
+bắt buộc chứ không phải tiện lợi: vị trí dòng và cột báo cho người đọc được tính bằng offset trên
+văn bản này, nên một phép cắt sẽ làm mọi phát hiện trỏ lệch sang chỗ khác. Bảng dấu hiệu vì vậy
+tách làm hai nhóm: dấu hiệu là *lời gọi* thì dò trên mã đã xóa chuỗi, dấu hiệu bản chất là *tham
+số dạng chuỗi* ( `php://input`, `display_errors` ) thì dò trên văn bản thô. Trụ sink bắt buộc
+phải là mã thật, và đó là phép kiểm giữ cho cả mô hình đứng được.
+
+Bản đầu của bộ xóa duyệt từng ký tự và tốn 117 micro giây mỗi KB, tức là một kho 100 MB phải trả
+thêm mười mấy giây. Bản sau nhảy giữa các vị trí đáng quan tâm bằng `str.find` và nhớ vị trí kế
+tiếp của từng token, nên mỗi token quét toàn tệp đúng một lượt: **38,8 micro giây mỗi KB, nhanh
+hơn 3,0 lần**, và chi phí tuyến tính theo độ dài tệp thay vì theo số chuỗi nhân số token. Tính
+tuyến tính đó có bài đo riêng trên 10 hình dạng đầu vào thù địch cho 3 ngôn ngữ, cùng cách
+`test_regex_complexity.py` canh các mẫu regex.
+
+### Số liệu
+
+**46 rule trên 20 họ lỗ hổng. 1295 kiểm tra tự động**, trong đó 87 bài cho riêng phần truy vết
+xâm nhập: mỗi rule một hiện vật thật, một cây thư mục lành phải im lặng hoàn toàn, phép nhận loại
+hiện vật cho 19 đường dẫn, và bộ đo tính tuyến tính của bộ xóa.
+
+---
+
 ## 0.1.0, bản chính thức đầu tiên
 
 Bản này khép lại giai đoạn thử nghiệm. Trước nó, công cụ đã đi qua nhiều vòng dựng và tự kiểm

@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/35-rule-e05d44?style=flat-square)](#-35-rule-trên-17-họ-injection)
-[![families](https://img.shields.io/badge/17-họ%20injection-fe7d37?style=flat-square)](#-35-rule-trên-17-họ-injection)
+[![rules](https://img.shields.io/badge/46-rule-e05d44?style=flat-square)](#-46-rule-trên-20-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/20-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-46-rule-trên-20-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1185-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1295-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>35</b><br/><sub>rule</sub></td>
-<td align="center"><b>17</b><br/><sub>họ injection</sub></td>
+<td align="center"><b>46</b><br/><sub>rule</sub></td>
+<td align="center"><b>20</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1185</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>1295</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="35 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="46 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,7 +90,7 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="35 rule đối chiếu OWASP Top 10:2025 trên năm mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="46 rule đối chiếu OWASP Top 10:2025 trên năm mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
@@ -142,7 +142,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 35 rule trên 17 họ injection
+## 🔍 46 rule trên 20 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -175,6 +175,48 @@ nên bảng này không thể lệch khỏi code.
 
 Xem đầy đủ bằng `python -m fortress_scan --list-rules`, và giải thích từng rule bằng
 `python -m fortress_scan --explain FSB-SQL-001`.
+
+---
+
+## 🚨 Truy vết xâm nhập: đã có người vào đây chưa ?
+
+Mọi rule phía trên trả lời **"mã này có thể bị khai thác"**. Họ `FSB-IR` trả lời một câu khác
+hẳn: **"đã có người khai thác xong và để lại cái gì"**. Khác biệt đó không phải chuyện cách gọi
+tên. Một phát hiện injection vào hàng đợi sửa lỗi của sprint sau; một phát hiện `FSB-IR` vào quy
+trình ứng cứu **ngay hôm nay**, vì nếu nó đúng thì hệ thống đang nằm trong tay người khác.
+
+| Họ | Rule | Bắt được |
+| :--- | :--- | :--- |
+| **Webshell và cửa hậu** | 🔴 `FSB-IR-001` · 🟠 `-002` · 🟠 `-003` | tệp nhỏ trong `uploads/` nhận lệnh từ request rồi `eval(base64_decode(...))` |
+| **Cơ chế trụ lại** | 🔴 `FSB-IR-010` · 🟠 `-011` · 🟠 `-012` · 🔴 `-013` | `cron.d` tải script về chạy, `ExecStart=/tmp/...`, `ld.so.preload` |
+| **Cửa hậu truy cập** | 🟠 `FSB-IR-014` · 🔴 `-015` · 🟠 `-016` | khoá SSH có `command=`, tài khoản thứ hai UID 0, `NOPASSWD: ALL` |
+| **Thực thi trong thư mục tải lên** | 🔴 `FSB-IR-017` | `.htaccess` bật `AddHandler` ngay trong `uploads/` |
+
+### Đọc được những tệp mà không ai coi là mã nguồn
+
+Cơ chế trụ lại không nằm trong mã. Nó nằm trong `crontab`, unit của `systemd`, tệp rc của shell,
+`authorized_keys`, `ld.so.preload`, `sudoers`, `passwd`, `.htaccess`. Không tệp nào trong số đó có
+phần mở rộng mà một bộ dò ngôn ngữ nhận ra, nên **trước bản này bộ duyệt cây không hề nhìn thấy
+chúng** - mà đó đúng là nơi kẻ tấn công cắm vào, vì nó chạy mà không cần sửa một dòng mã nào.
+
+### Kết luận trên cả tệp, không trên một dòng
+
+`eval($_POST['c'])` trong một controller dài hai nghìn dòng là một **lỗ hổng**. Đúng lời gọi đó,
+nằm một mình trong một tệp bốn dòng dưới `uploads/`, mở đầu bằng `@error_reporting(0)`, là một
+**webshell đã được cắm**. Phân biệt được hai thứ chỉ có cách nhìn cả tệp, nên bộ dò tính điểm theo
+**năm trụ**: đầu vào từ xa, nơi thực thi, lớp làm rối, dấu che, cổng mật khẩu cứng.
+
+Hệ quả cố ý: khi chỉ có *đầu vào tới sink* mà không có trụ nào nói về việc cắm ghép, họ `FSB-IR`
+**im lặng** và nhường cho các rule injection. Báo lại cùng một dòng dưới cái tên "webshell" là nói
+sai về bản chất sự việc, và trong một ca ứng cứu thì nói sai chỗ đó khiến người ta đi truy một vụ
+xâm nhập không có thật.
+
+> [!NOTE]
+> Bản đầu của chính bộ dò này **báo nhầm vào mã của nó**: `indicators.py` liệt kê `eval(` và
+> `$_POST` dưới dạng chuỗi, và phép so chuỗi con không phân biệt được *gọi* với *nhắc tới*.
+> `test_samples_corpus.py` bắt được ngay lần chạy đầu. Phép vá là một bộ xóa nội dung chuỗi và
+> chú thích **giữ nguyên độ dài** ( giữ độ dài là điều kiện để vị trí dòng báo ra còn đúng ), và
+> nó đóng luôn cả lớp báo nhầm trên bộ quy tắc WAF, luật YARA và tài liệu về webshell.
 
 ---
 

@@ -6,6 +6,7 @@ from typing import Callable, List, Optional, Sequence, Set, Tuple, TypeVar
 
 from ..analysis.base import AnalysisUnit
 from ..analysis.generic.analyzer import GenericAnalyzer
+from ..analysis.ir import IRAnalyzer
 from ..analysis.manifest import ManifestAnalyzer
 from ..analysis.python.analyzer import PythonAnalyzer, UnparsableSource
 from ..analysis.python.project import MAX_INDEX_FUNCTIONS, ProjectIndex
@@ -25,6 +26,7 @@ from .model import Finding, ScanError, ScanNotice, ScanResult, ScanStats
 _PYTHON_ANALYZER = PythonAnalyzer()
 _GENERIC_ANALYZER = GenericAnalyzer()
 _UNICODE_ANALYZER = UnicodeAnalyzer()
+_IR_ANALYZER = IRAnalyzer()
 _MANIFEST_ANALYZER = ManifestAnalyzer()
 _WORKFLOW_ANALYZER = WorkflowAnalyzer()
 
@@ -407,6 +409,16 @@ def _analyze_unit(
     except BudgetExceeded:
         pass
 
+    # Truy vết xâm nhập chạy cho MỌI ngôn ngữ, với túi ngân sách riêng. Riêng
+    # là có chủ ý: nó hỏi "đã có người vào đây chưa", và một tệp đủ lớn để làm
+    # cạn ngân sách phân tích luồng dữ liệu không được phép làm tắt luôn câu
+    # hỏi đó -- trong một ca ứng cứu thì đúng tệp bất thường mới là tệp cần dò.
+    ir_budget = Budget(config.node_budget, config.file_timeout_seconds)
+    try:
+        findings.extend(_IR_ANALYZER.analyze(unit, ir_budget))
+    except BudgetExceeded:
+        pass
+
     if unit.language == PYTHON:
         budget = Budget(config.node_budget, config.file_timeout_seconds)
         analyzer = _PYTHON_ANALYZER
@@ -430,7 +442,7 @@ def _analyze_unit(
     except BudgetExceeded as exc:
         failure = ("budget-exceeded", str(exc))
 
-    if failure is None and (budget.exhausted or unicode_budget.exhausted):
+    if failure is None and (budget.exhausted or unicode_budget.exhausted or ir_budget.exhausted):
         failure = (
             "budget-exceeded",
             "tệp quá lớn hoặc quá phức tạp, phân tích chưa hoàn tất nên kết quả có thể thiếu",
