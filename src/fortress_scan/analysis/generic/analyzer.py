@@ -11,7 +11,7 @@ from ...core.registry import get_rule
 from ..base import Analyzer, AnalysisUnit, FindingBuilder
 from ..python.specs import looks_like_sql
 from .lexer import IDENT, NEWLINE, OP, STRING, Token, tokenize
-from .profiles import GenericSink, LanguageSpec, spec_for
+from .profiles import REQUEST_BOUND_PARAMETER, GenericSink, LanguageSpec, spec_for
 
 _MAX_STATEMENTS = 20000
 _MAX_STATEMENT_TOKENS = 600
@@ -62,6 +62,8 @@ class GenericAnalyzer(Analyzer):
 
                 source, _macros = strip_preprocessor(source)
             tokens = tokenize(source, spec.lexer, budget)
+            if spec.case_insensitive:
+                tokens = _canonical_case(tokens, spec)
             return _Analysis(unit, spec, budget).run(tokens)
         except BudgetExceeded:
             return []
@@ -76,17 +78,72 @@ class _Analysis:
         self.tainted: Dict[str, TaintMark] = {}
         self.sanitized: Set[str] = set()
         self.declared: Set[str] = set()
+        # Biến đang mang văn bản SQL ( `q = "SELECT ... " + id` ): truyền nó vào
+        # executeQuery(q) / db.Query(q) / new SqlCommand(q) là truyền một câu SQL,
+        # dù tại chỗ gọi không còn literal nào để nhận ra.
+        self.sql_like: Set[str] = set()
+        # Biến giữ nguyên một GString có nội suy ( Groovy ): sink tham số hoá
+        # nhận nó vẫn bind giá trị, không dán.
+        self.parameterized: Set[str] = set()
+        self.receiver_sinks: Dict[str, GenericSink] = {}
+        for sink in spec.sinks:
+            if sink.receiver:
+                for name in sink.names:
+                    self.receiver_sinks[name.rsplit(".", 1)[-1]] = sink
+        self.tracks_parameterized = any(sink.interpolation_parameterized for sink in spec.sinks)
+        # Tham số của một hàm chỉ sống trong thân hàm đó: `name` của handler này
+        # không làm bẩn `name` của hàm tiện ích viết bên dưới. ( đầu, cuối, tên,
+        # vết nhiễm hoặc None nghĩa là "sạch" ).
+        self.scoped: List[Tuple[Tuple[int, int], Tuple[int, int], str, Optional[TaintMark]]] = []
 
     def run(self, tokens: Sequence[Token]) -> List[Finding]:
         self._collect_declarations(tokens)
         self._seed_annotations(tokens)
         statements = _split_statements(tokens)
+        pending = sorted(self.scoped, key=lambda item: item[0])
+        active: List[Tuple[Tuple[int, int], Tuple[int, int], str, Optional[TaintMark]]] = []
         for statement in statements[:_MAX_STATEMENTS]:
             self.budget.spend()
             if not statement:
                 continue
+            if pending or active:
+                position = (statement[0].line, statement[0].column)
+                while pending and pending[0][0] <= position:
+                    entry = pending.pop(0)
+                    self._enter_scope(entry)
+                    active.append(entry)
+                for entry in [item for item in active if item[1] <= position]:
+                    active.remove(entry)
+                    self._leave_scope(entry)
             self._analyze_statement(statement)
         return self.builder.findings
+
+    def _enter_scope(self, entry) -> None:
+        _, _, name, mark = entry
+        if mark is None:
+            self.tainted.pop(name, None)
+            self.sanitized.add(name)
+        else:
+            self.tainted[name] = mark
+            self.sanitized.discard(name)
+
+    def _leave_scope(self, entry) -> None:
+        _, _, name, mark = entry
+        if mark is None:
+            self.sanitized.discard(name)
+        elif self.tainted.get(name) is mark:
+            self.tainted.pop(name, None)
+
+    def _seed_parameter(self, tokens: Sequence[Token], index: int, name: str, mark: Optional[TaintMark]) -> None:
+        """Gắn vết nhiễm ( hoặc "sạch" ) cho tham số `name` khai ở vị trí `index`,
+        chỉ trong thân hàm; không tìm được thân hàm thì gắn cho cả tệp như trước."""
+        span = _body_span(tokens, index)
+        if span is not None:
+            self.scoped.append((span[0], span[1], name, mark))
+        elif mark is None:
+            self.sanitized.add(name)
+        else:
+            self.tainted[name] = mark
 
     def _collect_declarations(self, tokens: Sequence[Token]) -> None:
         """Tên khử độc mà chính tệp này định nghĩa lại.
@@ -140,6 +197,10 @@ class _Analysis:
                 self.declared.add(token.text)
 
     def _seed_annotations(self, tokens: Sequence[Token]) -> None:
+        if self.spec.conn_param_patterns:
+            self._seed_conn_patterns(tokens)
+        if self.spec.attribute_sources or self.spec.handler_annotations:
+            self._seed_handlers(tokens)
         if not self.spec.annotation_sources:
             return
         index = 0
@@ -149,10 +210,113 @@ class _Analysis:
             if token.kind == OP and token.text == "@":
                 label = self.spec.annotation_sources.get(tokens[index + 1].text)
                 if label is not None:
-                    name = _next_declared_name(tokens, index + 2)
-                    if name is not None:
-                        self.tainted[name] = TaintMark(label, token.line, Confidence.HIGH)
+                    name = _next_declared_name(tokens, index + 2, self.spec.annotation_separator)
+                    if name is not None and _scalar_parameter(tokens, index + 2):
+                        # Framework đã parse thành số: giá trị sạch, không chỉ "không bẩn".
+                        self._seed_parameter(tokens, index, name, None)
+                    elif name is not None:
+                        self._seed_parameter(tokens, index, name, TaintMark(label, token.line, Confidence.HIGH))
             index += 1
+
+    def _seed_handlers(self, tokens: Sequence[Token]) -> None:
+        """Tham số mà framework gắn thẳng từ request.
+
+        Hai dạng: attribute trên chính tham số ( `[FromQuery] string id` ), và
+        tham số kiểu chuỗi của một phương thức mang annotation xử lý request
+        ( `@GetMapping` của Spring, `[HttpGet]` của ASP.NET ). Ở dạng thứ hai
+        framework tự gắn tham số không annotation từ query/form/route, nên đó
+        là cách viết phổ biến nhất mà lại không có dấu hiệu nguồn nào tại chỗ.
+        """
+        spec = self.spec
+        limit = len(tokens)
+        for index, token in enumerate(tokens):
+            if token.kind != OP or token.in_string or index + 1 >= limit:
+                continue
+            name_token = tokens[index + 1]
+            if name_token.kind != IDENT:
+                continue
+            if token.text == "[":
+                close = _group_end(tokens, index)
+                if close is None:
+                    continue
+                label = spec.attribute_sources.get(name_token.text)
+                if label is not None:
+                    name = _next_declared_name(tokens, close, spec.annotation_separator)
+                    if name is not None:
+                        self._seed_parameter(tokens, index, name, TaintMark(label, token.line, Confidence.HIGH))
+                    continue
+                if name_token.text in spec.handler_annotations:
+                    self._seed_handler_parameters(tokens, close)
+            elif token.text == "@" and name_token.text in spec.handler_annotations:
+                after = index + 2
+                if after < limit and tokens[after].kind == OP and tokens[after].text == "(":
+                    after = _group_end(tokens, after) or after
+                self._seed_handler_parameters(tokens, after)
+
+    def _seed_handler_parameters(self, tokens: Sequence[Token], start: int) -> None:
+        spec = self.spec
+        limit = len(tokens)
+        cursor = start
+        # Bỏ qua các annotation/attribute khác và modifier tới dấu `(` của
+        # danh sách tham số; dừng nếu gặp thân hàm hoặc hết câu lệnh trước đó.
+        while cursor < limit:
+            current = tokens[cursor]
+            if current.kind == IDENT and current.text in ("class", "interface", "object", "record", "struct"):
+                return
+            if current.kind == OP and not current.in_string:
+                if current.text in ("{", "}", ";", "="):
+                    return
+                if current.text == "[" or (current.text == "@" and cursor + 1 < limit):
+                    if current.text == "@":
+                        cursor += 2
+                        if cursor < limit and tokens[cursor].kind == OP and tokens[cursor].text == "(":
+                            cursor = _group_end(tokens, cursor) or limit
+                        continue
+                    cursor = _group_end(tokens, cursor) or limit
+                    continue
+                if current.text == "(" and cursor > start and tokens[cursor - 1].kind == IDENT:
+                    break
+            cursor += 1
+        if cursor >= limit:
+            return
+        close = _group_end(tokens, cursor)
+        if close is None:
+            return
+        arguments, _ = _read_arguments(tokens, cursor)
+        for parameter in arguments:
+            name = _handler_parameter_name(parameter, spec)
+            if name is not None:
+                self._seed_parameter(
+                    tokens, cursor + 1, name, TaintMark(REQUEST_BOUND_PARAMETER, parameter[0].line, Confidence.HIGH)
+                )
+
+    def _seed_conn_patterns(self, tokens: Sequence[Token]) -> None:
+        """`def show(conn, %{"id" => id, "q" => q})`: id, q là tham số request.
+
+        Chỉ nhận đầu hàm có `conn` ( action của Phoenix controller ); một hàm
+        bình thường khớp mẫu map thì không phải nguồn.
+        """
+        limit = len(tokens)
+        for index, token in enumerate(tokens):
+            if token.kind != IDENT or token.text not in ("def", "defp"):
+                continue
+            if index + 3 >= limit or tokens[index + 2].text != "(":
+                continue
+            if tokens[index + 3].text not in ("conn", "_conn"):
+                continue
+            close = _group_end(tokens, index + 2)
+            if close is None:
+                continue
+            for cursor in range(index + 3, close - 2):
+                if (
+                    tokens[cursor].kind == STRING
+                    and tokens[cursor + 1].kind == OP
+                    and tokens[cursor + 1].text == "=>"
+                    and tokens[cursor + 2].kind == IDENT
+                ):
+                    self.tainted[tokens[cursor + 2].text] = TaintMark(
+                        "tham số request Phoenix", tokens[cursor].line, Confidence.HIGH
+                    )
 
     def _analyze_statement(self, statement: Sequence[Token]) -> None:
         if len(statement) > _MAX_STATEMENT_TOKENS:
@@ -162,8 +326,12 @@ class _Analysis:
             return
         self._analyze_assignment(statement)
         self._analyze_calls(statement)
+        if self.receiver_sinks:
+            self._analyze_receiver_calls(statement)
         if self.spec.stream_sources:
             self._analyze_extraction(statement)
+        if self.spec.redirect_view_prefix:
+            self._analyze_redirect_view(statement)
         self._analyze_backticks(statement)
 
     def _analyze_assignment(self, statement: Sequence[Token]) -> None:
@@ -176,6 +344,17 @@ class _Analysis:
             return
         target = _assignment_target(left, self.spec)
         mark = self._taint_of(right)
+        compound = statement[position].text not in ("=", ":=", "<-")
+        if target is not None:
+            if self._mentions_sql(right):
+                self.sql_like.add(target)
+            elif not compound:
+                self.sql_like.discard(target)
+            if self.tracks_parameterized:
+                if not compound and _is_lone_template(right):
+                    self.parameterized.add(target)
+                else:
+                    self.parameterized.discard(target)
 
         if target is not None:
             member = target.rsplit(".", 1)[-1]
@@ -195,13 +374,12 @@ class _Analysis:
                 simple = target.rsplit(".", 1)[-1]
                 if simple != target:
                     self.tainted.setdefault(simple, mark)
-            elif self.spec.literal_assignments and statement[position].text != "=" and target in self.tainted:
+            elif compound and target in self.tainted:
                 # cmd += " -v": nối thêm vào chuỗi bẩn thì nó vẫn bẩn.
                 return
             else:
                 self.tainted.pop(target, None)
-                compound = statement[position].text != "="
-                literal = self.spec.literal_assignments and _is_literal_choice(right)
+                literal = _is_literal_choice(right) or _is_builder_literal(right, self.spec)
                 if self._is_neutralized(right) or (literal and (not compound or target in self.sanitized)):
                     self.sanitized.add(target)
                 else:
@@ -229,6 +407,8 @@ class _Analysis:
                 self._check_call(chain, statement[index], arguments, chain_end)
                 if self.spec.fill_sources or self.spec.propagators:
                     self._apply_outputs(chain, statement[index], arguments)
+                if self.spec.receiver_propagators:
+                    self._propagate_to_receiver(chain, statement, index, arguments)
             elif chain in self.spec.bare_call_names:
                 self._check_call(
                     chain, statement[index], [list(statement[next_index:])], chain_end
@@ -245,8 +425,18 @@ class _Analysis:
         sink = _match_sink(chain, self.spec)
         if sink is None:
             return
+        if sink.first_argument_names:
+            if not arguments or _lone_name(arguments[0]) not in sink.first_argument_names:
+                return
+        if sink.interpolation_parameterized:
+            # sql.rows("... ${id}") của Groovy: GString được tham số hoá, chỉ phần nối chuỗi mới nguy hiểm.
+            arguments = [
+                [] if _lone_name(argument) in self.parameterized
+                else [token for token in argument if not token.interpolated]
+                for argument in arguments
+            ]
         if sink.require_sql:
-            selected = _select_sql_argument(arguments, sink, chain, self.budget.spend)
+            selected = _select_sql_argument(arguments, sink, chain, self.budget.spend, self._mentions_sql)
         elif sink.program_position:
             wrapped = _shell_wrapper_argument(arguments)
             if wrapped is not None:
@@ -263,6 +453,8 @@ class _Analysis:
                 )
                 return
             selected = arguments[0] if arguments else ()
+        elif sink.all_arguments_from is not None:
+            selected = [token for argument in arguments[sink.all_arguments_from :] for token in argument]
         else:
             position = min(sink.argument_index, max(0, len(arguments) - 1))
             selected = arguments[position] if arguments else ()
@@ -280,6 +472,120 @@ class _Analysis:
             anchor_end=anchor_end,
             confidence=sink.confidence,
         )
+
+    def _analyze_receiver_calls(self, statement: Sequence[Token]) -> None:
+        """`"ls ${d}".execute()`, `cmd.execute()`, `Seq("sh", "-c", c).!!`.
+
+        Giá trị nguy hiểm là vế TRƯỚC dấu chấm. Chỉ nhận lời gọi không đối số,
+        và chỉ báo "không phải hằng" khi vế trước là một chuỗi hay một danh sách
+        viết tại chỗ: `task.execute()` trên một đối tượng bất kỳ không phải lệnh.
+        """
+        limit = len(statement)
+        for index in range(1, limit):
+            token = statement[index]
+            if token.in_string or token.kind not in (IDENT, OP):
+                continue
+            sink = self.receiver_sinks.get(token.text)
+            if sink is None:
+                continue
+            dot = index - 1
+            if statement[dot].kind != OP or statement[dot].text != ".":
+                # Scala viết được `cmd !!` không có dấu chấm.
+                if token.kind != OP:
+                    continue
+                dot = index
+            elif token.kind == IDENT:
+                # Chỉ `.execute()` không đối số; `.execute(x)` là phương thức khác.
+                if index + 2 >= limit or statement[index + 1].text != "(" or statement[index + 2].text != ")":
+                    continue
+            receiver = _expression_before(statement, dot)
+            if not receiver:
+                continue
+            last = receiver[-1]
+            if last.kind == OP and not last.in_string and last.text not in (")", "]"):
+                continue
+            head, _ = _read_chain(receiver, 1 if receiver[0].text == "new" else 0, self.spec)
+            if head is not None and _match_sink(head, self.spec) is not None:
+                # Process(cmd).! : lời gọi Process(...) đã được kiểm như một sink.
+                continue
+            listed = _listed_elements(receiver)
+            wrapped = _shell_wrapper_argument(listed) if listed is not None else None
+            if wrapped is not None:
+                self._report_expression(
+                    rule_id="FSB-CMD-001",
+                    dynamic_rule="FSB-CMD-003",
+                    description="một lệnh shell truyền qua cờ thông dịch",
+                    symbol=token.text,
+                    tokens=wrapped,
+                    mark=self._taint_of(wrapped),
+                    anchor=receiver[0],
+                    anchor_end=token,
+                    confidence=Confidence.HIGH,
+                )
+                continue
+            mark = self._taint_of(receiver)
+            literal_receiver = listed is not None or any(item.kind == STRING for item in receiver)
+            if mark is None and not literal_receiver:
+                continue
+            self._report_expression(
+                rule_id=sink.tainted_rule,
+                dynamic_rule=sink.dynamic_rule,
+                description=sink.description,
+                symbol=token.text,
+                tokens=receiver,
+                mark=mark,
+                anchor=receiver[0],
+                anchor_end=token,
+                confidence=sink.confidence,
+            )
+
+    def _propagate_to_receiver(
+        self, chain: str, statement: Sequence[Token], index: int, arguments: Sequence[Sequence[Token]]
+    ) -> None:
+        """sb.append(x): vết nhiễm, chữ SQL và mức "chỉ có literal" đổ vào `sb`."""
+        method = chain.rsplit(".", 1)[-1]
+        if method not in self.spec.receiver_propagators:
+            return
+        if "." in chain:
+            root = chain.rsplit(".", 1)[0]
+            if index > 0 and statement[index - 1].kind == IDENT and statement[index - 1].text == "new":
+                return
+        else:
+            root = _chained_root(statement, index - 1, self.spec)
+            if root is None:
+                return
+        tokens = [token for argument in arguments for token in argument]
+        mark = self._taint_of(tokens)
+        if mark is not None:
+            self.tainted[root] = mark
+            self.sanitized.discard(root)
+        elif not _is_literal(tokens) and not self._is_neutralized(tokens):
+            self.sanitized.discard(root)
+        if self._mentions_sql(tokens):
+            self.sql_like.add(root)
+
+    def _analyze_redirect_view(self, statement: Sequence[Token]) -> None:
+        """`return "redirect:" + url` / `new ModelAndView("redirect:" + url)` của Spring."""
+        prefix = self.spec.redirect_view_prefix or ""
+        for index, token in enumerate(statement):
+            if token.kind != STRING or token.in_string or not token.text.startswith(prefix):
+                continue
+            tail = [item for item in statement[index + 1 :] if item.kind != OP or item.text not in (")", ";")]
+            if not tail:
+                return
+            mark = self._taint_of(tail)
+            if mark is None:
+                return
+            self._report_expression(
+                rule_id="FSB-REDIR-001",
+                dynamic_rule=None,
+                description="view chuyển hướng `%s`" % prefix,
+                symbol=prefix,
+                tokens=tail,
+                mark=mark,
+                anchor=token,
+            )
+            return
 
     def _analyze_extraction(self, statement: Sequence[Token]) -> None:
         """std::cin >> name >> age: mọi vế sau >> nhận dữ liệu nhập."""
@@ -515,6 +821,8 @@ class _Analysis:
             for start, end, categories in protected:
                 if start <= position < end:
                     here = here | categories
+            if self.spec.postfix_sanitizers:
+                here = here | _postfix_categories(tokens, position, self.spec)
             cleared = here if cleared is None else (cleared & here)
             if surviving is None and here != _EVERY_CATEGORY:
                 surviving = mark
@@ -586,6 +894,18 @@ class _Analysis:
         for chain in self._chains(tokens):
             if chain in self.spec.sanitizers and chain not in self.declared:
                 return True
+        if self.spec.postfix_sanitizers:
+            for index in range(len(tokens)):
+                if _postfix_categories(tokens, index, self.spec) == _EVERY_CATEGORY:
+                    return True
+        return False
+
+    def _mentions_sql(self, tokens: Sequence[Token]) -> bool:
+        text = " ".join(token.text for token in tokens if token.kind == STRING)
+        if text and looks_like_sql(text, self.budget.spend):
+            return True
+        if self.sql_like:
+            return any(chain in self.sql_like for chain in self._chains(tokens))
         return False
 
     def _is_neutralized(self, tokens: Sequence[Token]) -> bool:
@@ -666,6 +986,15 @@ def _assignment_position(statement: Sequence[Token], spec: LanguageSpec) -> Opti
 
 
 def _strip_type_annotation(left: Sequence[Token], spec: LanguageSpec) -> Sequence[Token]:
+    if spec.annotation_keyword is not None:
+        keyword = spec.annotation_keyword.lower()
+        for index, token in enumerate(left):
+            if token.kind == IDENT and token.text.lower() == keyword and index > 0:
+                return list(left[:index])
+    return _strip_annotation_separator(left, spec)
+
+
+def _strip_annotation_separator(left: Sequence[Token], spec: LanguageSpec) -> Sequence[Token]:
     """Drop ``: T`` from ``const x: T = ...`` so the target stays ``x``.
 
     Only the first separator at bracket depth zero counts; a colon inside an
@@ -789,7 +1118,12 @@ _SHELL_FLAGS = frozenset({"-c", "/c", "/C", "-Command", "-command"})
 def _shell_wrapper_argument(
     arguments: Sequence[Sequence[Token]],
 ) -> Optional[Sequence[Token]]:
-    if len(arguments) < 3:
+    if len(arguments) == 1:
+        # ProcessBuilder(listOf("sh", "-c", cmd)), Process(Seq("bash", "-c", c)).
+        listed = _listed_elements(arguments[0])
+        if listed is not None and len(listed) >= 3:
+            arguments = listed
+    if len(arguments) < 2:
         return None
     program = _sole_string(arguments[0])
     if program is None:
@@ -800,7 +1134,52 @@ def _shell_wrapper_argument(
         flag = _sole_string(arguments[index])
         if flag is not None and flag in _SHELL_FLAGS:
             return arguments[index + 1]
+    # Process.Start("cmd.exe", "/c " + q): cờ và lệnh chung một chuỗi.
+    if len(arguments) == 2:
+        first = next((token for token in arguments[1] if not token.in_string), None)
+        if first is not None and first.kind == STRING:
+            head = first.text.lstrip().split(" ", 1)[0]
+            if head in _SHELL_FLAGS:
+                return arguments[1]
     return None
+
+
+_COLLECTION_CALLS = frozenset(
+    {
+        "listOf", "arrayOf", "mutableListOf", "List", "Seq", "Array", "Vector",
+        "Arrays.asList", "List.of", "Collections.singletonList", "ImmutableList.of",
+    }
+)
+
+
+def _listed_elements(argument: Sequence[Token]) -> Optional[List[List[Token]]]:
+    """Phần tử của một danh sách viết tại chỗ: `[a, b]`, `listOf(a, b)`,
+    `new String[]{a, b}`, `Seq(a, b)`; None nếu đối số không phải dạng đó."""
+    tokens = [token for token in argument if not token.in_string or token.kind == STRING]
+    if not tokens:
+        return None
+    first = tokens[0]
+    if first.kind == OP and first.text == "[":
+        if _group_end(tokens, 0) != len(tokens):
+            return None
+        return [list(item) for item in _read_arguments(list(argument), list(argument).index(first))[0]]
+    if first.kind == IDENT and first.text == "new":
+        brace = next((i for i, token in enumerate(tokens) if token.kind == OP and token.text == "{"), None)
+        if brace is None or _group_end(tokens, brace) != len(tokens):
+            return None
+        start = list(argument).index(tokens[brace])
+        return [list(item) for item in _read_arguments(list(argument), start)[0]]
+    names: List[str] = []
+    cursor = 0
+    while cursor < len(tokens) and (tokens[cursor].kind == IDENT or (tokens[cursor].kind == OP and tokens[cursor].text == ".")):
+        names.append(tokens[cursor].text)
+        cursor += 1
+    if "".join(names) not in _COLLECTION_CALLS or cursor >= len(tokens) or tokens[cursor].text != "(":
+        return None
+    if _group_end(tokens, cursor) != len(tokens):
+        return None
+    start = list(argument).index(tokens[cursor])
+    return [list(item) for item in _read_arguments(list(argument), start)[0]]
 
 
 _NUMERIC_CONVERSION = re.compile(r"%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|j|z|t|L)?([a-zA-Z%])")
@@ -824,6 +1203,301 @@ def _is_standard_input(argument: Sequence[Token], spec: LanguageSpec) -> bool:
         return True
     chain, end = _read_chain(meaningful, 0, spec)
     return chain in _STANDARD_INPUT_NAMES and end == len(meaningful)
+
+
+_EXPRESSION_STOPS = frozenset({"=", "(", ",", "[", "{", ";", "return", "->", "=>", ":"})
+
+
+def _expression_before(statement: Sequence[Token], dot: int) -> List[Token]:
+    """Biểu thức kết thúc ngay trước dấu chấm tại `dot`: chuỗi, ngoặc, hoặc tên."""
+    cursor = dot - 1
+    if cursor < 0:
+        return []
+    token = statement[cursor]
+    if token.kind == OP and token.text in (")", "]"):
+        depth = 0
+        while cursor >= 0:
+            current = statement[cursor]
+            if current.kind == OP and current.text in (")", "]"):
+                depth += 1
+            elif current.kind == OP and current.text in ("(", "["):
+                depth -= 1
+                if depth == 0:
+                    break
+            cursor -= 1
+        cursor = max(cursor, 0)
+        # Seq("sh", "-c", c).!! / new File(p).delete(): lấy cả tên hàm đứng trước ngoặc.
+        while cursor >= 1 and statement[cursor - 1].kind == IDENT and not statement[cursor - 1].in_string:
+            cursor -= 1
+            if cursor >= 2 and statement[cursor - 1].kind == OP and statement[cursor - 1].text == ".":
+                cursor -= 1
+                continue
+            break
+        return list(statement[cursor:dot])
+    # Chuỗi nội suy: token STRING cùng các token nội suy đứng sau nó.
+    start = cursor
+    while start > 0 and statement[start].in_string and statement[start].kind != STRING:
+        start -= 1
+    if statement[start].kind == STRING:
+        return list(statement[start:dot])
+    while start > 0 and statement[start - 1].kind == OP and statement[start - 1].text == "." and start - 2 >= 0 and statement[start - 2].kind == IDENT:
+        start -= 2
+    return list(statement[start:dot])
+
+
+def _chained_root(statement: Sequence[Token], dot: int, spec: LanguageSpec) -> Optional[str]:
+    """Biến gốc của `sb.append(a).append(b)` khi đang đứng ở `.append` thứ hai."""
+    if dot < 1 or statement[dot].kind != OP or statement[dot].text != ".":
+        return None
+    cursor = dot - 1
+    while cursor >= 0:
+        token = statement[cursor]
+        if token.kind == OP and token.text == ")":
+            depth = 0
+            while cursor >= 0:
+                current = statement[cursor]
+                if current.kind == OP and current.text == ")":
+                    depth += 1
+                elif current.kind == OP and current.text == "(":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                cursor -= 1
+            cursor -= 1
+            if cursor < 0 or statement[cursor].kind != IDENT:
+                return None
+            if statement[cursor].text not in spec.receiver_propagators:
+                return None
+            if cursor < 1 or statement[cursor - 1].text != ".":
+                return None
+            cursor -= 2
+            continue
+        if token.kind != IDENT:
+            return None
+        start = cursor
+        while start >= 2 and statement[start - 1].kind == OP and statement[start - 1].text in spec.chain_separators and statement[start - 2].kind == IDENT:
+            start -= 2
+        if start > 0 and statement[start - 1].kind == IDENT and statement[start - 1].text == "new":
+            return None
+        chain, end = _read_chain(statement, start, spec)
+        return chain
+    return None
+
+
+def _postfix_categories(tokens: Sequence[Token], position: int, spec: LanguageSpec) -> FrozenSet[Category]:
+    """Nhóm được khử bởi các lời gọi VIẾT SAU giá trị tại `position`.
+
+    `request.getParameter("p").toInt()`, `params[:id].to_i`, `id.toLong()`:
+    đi tiếp qua các nhóm ngoặc và các `.ten` ngay sau giá trị; một bộ khử độc
+    hậu tố ở bất kỳ mắt xích nào cũng áp cho cả biểu thức đứng trước nó.
+    """
+    _, cursor = _read_chain(tokens, position, spec)
+    parts_start = position
+    found: FrozenSet[Category] = frozenset()
+    # Mắt xích nằm ngay trong chuỗi gọi: `id.toInt` được đọc thành một chuỗi.
+    index = parts_start + 1
+    while index < cursor:
+        token = tokens[index]
+        if token.kind == IDENT and index > parts_start:
+            categories = spec.postfix_sanitizers.get(token.text)
+            if categories is not None:
+                found = found | categories
+        index += 1
+    limit = len(tokens)
+    while cursor < limit:
+        token = tokens[cursor]
+        if token.kind == OP and token.text in ("(", "[") and not token.in_string:
+            after = _group_end(tokens, cursor)
+            if after is None:
+                break
+            cursor = after
+            continue
+        if token.kind == OP and token.text in spec.chain_separators and cursor + 1 < limit:
+            following = tokens[cursor + 1]
+            if following.kind != IDENT:
+                break
+            categories = spec.postfix_sanitizers.get(following.text)
+            if categories is not None:
+                found = found | categories
+            cursor += 2
+            continue
+        if token.kind == OP and token.text in ("!!", "?") and not token.in_string:
+            cursor += 1
+            continue
+        break
+    return found
+
+
+def _handler_parameter_name(parameter: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
+    """Tên của một tham số kiểu chuỗi không mang annotation loại trừ."""
+    tokens = [token for token in parameter if not token.in_string]
+    if not tokens:
+        return None
+    cursor = 0
+    while cursor < len(tokens):
+        token = tokens[cursor]
+        if token.kind == OP and token.text in ("@", "[") and cursor + 1 < len(tokens):
+            annotation = tokens[cursor + 1].text
+            if annotation in spec.handler_parameter_exclusions:
+                return None
+            if annotation in spec.annotation_sources or annotation in spec.attribute_sources:
+                return None
+            if token.text == "[":
+                cursor = _group_end(tokens, cursor) or len(tokens)
+                continue
+            cursor += 2
+            if cursor < len(tokens) and tokens[cursor].kind == OP and tokens[cursor].text == "(":
+                cursor = _group_end(tokens, cursor) or len(tokens)
+            continue
+        break
+    body = tokens[cursor:]
+    default = next((i for i, token in enumerate(body) if token.kind == OP and token.text == "="), None)
+    if default is not None:
+        body = body[:default]
+    names = [token for token in body if token.kind == IDENT]
+    if len(names) < 2:
+        return None
+    separator = spec.annotation_separator
+    if separator is not None and any(token.kind == OP and token.text == separator for token in body):
+        # Kotlin/Scala: `name: String`
+        split = next(i for i, token in enumerate(body) if token.kind == OP and token.text == separator)
+        before = [token for token in body[:split] if token.kind == IDENT]
+        after = [token for token in body[split + 1 :] if token.kind == IDENT]
+        if not before or not after or after[0].text not in spec.handler_parameter_types:
+            return None
+        if len(after) > 1:
+            return None
+        return before[-1].text
+    # Java/C#: `String name`, `string? name`
+    type_names = [token.text for token in names[:-1]]
+    if not type_names or type_names[-1] not in spec.handler_parameter_types:
+        return None
+    if any(token.kind == OP and token.text in ("<", "[") for token in body):
+        return None
+    return names[-1].text
+
+
+# Kiểu mà framework chỉ gắn được khi giá trị ĐÃ parse thành số/ngày/UUID: chuỗi
+# lạ không đi qua được, nên tham số kiểu này không mang ký tự đặc biệt nào.
+_SCALAR_TYPES = frozenset(
+    {
+        "int", "Integer", "Int", "long", "Long", "short", "Short", "byte", "Byte",
+        "double", "Double", "float", "Float", "boolean", "Boolean", "Bool", "bool",
+        "UUID", "Guid", "BigDecimal", "BigInteger", "LocalDate", "LocalDateTime",
+        "Instant", "DateTime", "decimal", "uint", "ulong",
+    }
+)
+
+
+def _scalar_parameter(tokens: Sequence[Token], index: int) -> bool:
+    """`@PathVariable Long id`, `@RequestParam id: Int`: kiểu số nên không phải nguồn chuỗi."""
+    cursor = index
+    if cursor < len(tokens) and tokens[cursor].kind == OP and tokens[cursor].text == "(":
+        after = _group_end(tokens, cursor)
+        if after is None:
+            return False
+        cursor = after
+    limit = min(len(tokens), cursor + 12)
+    while cursor < limit:
+        token = tokens[cursor]
+        if token.kind == OP and token.text in (",", ")", "<", "["):
+            return False
+        if token.kind == IDENT and token.text in _SCALAR_TYPES:
+            # Kiểu bọc như List<Long> dừng ở `<` phía trên nên không tới đây.
+            following = tokens[cursor + 1] if cursor + 1 < len(tokens) else None
+            if following is not None and following.kind == OP and following.text in ("<", "["):
+                return False
+            return True
+        cursor += 1
+    return False
+
+
+def _body_span(
+    tokens: Sequence[Token], index: int
+) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+    """Vị trí `{` và `}` của thân hàm có danh sách tham số chứa `index`."""
+    limit = len(tokens)
+    depth = 0
+    cursor = index
+    while cursor < limit:
+        token = tokens[cursor]
+        if token.kind == OP and not token.in_string:
+            if token.text in "([{":
+                depth += 1
+            elif token.text in ")]}":
+                depth -= 1
+                if depth < 0:
+                    break
+            elif token.text == ";" and depth <= 0:
+                return None
+        cursor += 1
+    if cursor >= limit or tokens[cursor].text != ")":
+        return None
+    # Kiểu trả về, `throws X`, `where T : ...` đứng giữa `)` và `{`.
+    for brace in range(cursor + 1, min(limit, cursor + 40)):
+        token = tokens[brace]
+        if token.kind != OP or token.in_string:
+            continue
+        if token.text == "{":
+            after = _group_end(tokens, brace)
+            if after is None:
+                return None
+            closing = tokens[after - 1]
+            return (token.line, token.column), (closing.line, closing.column)
+        if token.text in (";", "=", "}", "=>"):
+            return None
+    return None
+
+
+def _lone_name(argument: Sequence[Token]) -> Optional[str]:
+    meaningful = [token for token in argument if not token.in_string]
+    if len(meaningful) == 1 and meaningful[0].kind == IDENT:
+        return meaningful[0].text
+    return None
+
+
+def _is_lone_template(tokens: Sequence[Token]) -> bool:
+    """Vế phải chỉ là MỘT chuỗi có nội suy ( một GString trọn vẹn )."""
+    meaningful = [token for token in tokens if not token.in_string]
+    return len(meaningful) == 1 and meaningful[0].kind == STRING and any(token.interpolated for token in tokens)
+
+
+def _is_builder_literal(tokens: Sequence[Token], spec: LanguageSpec) -> bool:
+    """`new StringBuilder("SELECT ...")` / `StringBuilder()`: bộ dựng chỉ mang literal."""
+    if not spec.builder_constructors:
+        return False
+    items = list(tokens)
+    if items and items[0].kind == IDENT and items[0].text == "new":
+        items = items[1:]
+    chain, cursor = _read_chain(items, 0, spec)
+    if chain is None or chain not in spec.builder_constructors:
+        # `StringBuilder()` không đối số: _read_chain dừng ở `()` cuối.
+        return False
+    if cursor >= len(items):
+        return True
+    if items[cursor].kind != OP or items[cursor].text != "(":
+        return False
+    if _group_end(items, cursor) != len(items):
+        return False
+    return _is_literal(items[cursor + 1 : -1])
+
+
+def _canonical_case(tokens: Sequence[Token], spec: LanguageSpec) -> List[Token]:
+    names: Set[str] = set(spec.sources) | set(spec.sanitizers) | set(spec.low_signal_sources)
+    for sink in spec.sinks:
+        names.update(sink.names)
+    canon: Dict[str, str] = {}
+    for name in names:
+        for part in name.split("."):
+            canon.setdefault(part.lower(), part)
+    result: List[Token] = []
+    for token in tokens:
+        if token.kind == IDENT and not token.in_string:
+            fixed = canon.get(token.text.lower())
+            if fixed is not None and fixed != token.text:
+                token = replace(token, text=fixed)
+        result.append(token)
+    return result
 
 
 def _out_target(argument: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
@@ -875,6 +1549,45 @@ _ALWAYS_SQL = frozenset(
         "PQexec",
         "PQexecParams",
         "PQsendQuery",
+        # JDBC, JPA, JdbcTemplate, Android: các API này chỉ nhận SQL/JPQL.
+        "executeQuery",
+        "executeUpdate",
+        "executeLargeUpdate",
+        "prepareStatement",
+        "prepareCall",
+        "addBatch",
+        "createQuery",
+        "queryForObject",
+        "queryForList",
+        "queryForMap",
+        "queryForRowSet",
+        "rawQuery",
+        "execSQL",
+        "Fragment.const",
+        "Fragment.const0",
+        # ADO.NET: đối số đầu của các lớp Command là văn bản lệnh.
+        "SqlCommand",
+        "OleDbCommand",
+        "OdbcCommand",
+        "MySqlCommand",
+        "NpgsqlCommand",
+        "SqliteCommand",
+        "SQLiteCommand",
+        "OracleCommand",
+        "SqlDataAdapter",
+        # database/sql của Go khi đối tượng nhận mang tên quen thuộc.
+        "db.Query",
+        "db.QueryRow",
+        "db.Exec",
+        "db.QueryContext",
+        "db.QueryRowContext",
+        "db.ExecContext",
+        "tx.Query",
+        "tx.QueryRow",
+        "tx.Exec",
+        "tx.QueryContext",
+        "tx.ExecContext",
+        "db.Raw",
     }
 )
 
@@ -906,23 +1619,40 @@ def _select_sql_argument(
     sink: GenericSink,
     chain: str,
     spend: Optional[Callable[[int], None]] = None,
+    mentions_sql: Optional[Callable[[Sequence[Token]], bool]] = None,
 ) -> Sequence[Token]:
     for argument in arguments:
+        if mentions_sql is not None:
+            if mentions_sql(argument):
+                return argument
+            continue
         text = " ".join(token.text for token in argument if token.kind == STRING)
         if looks_like_sql(text, spend):
             return argument
-    tail = chain.rsplit(".", 1)[-1]
-    if chain in _ALWAYS_SQL or tail in _ALWAYS_SQL:
+    if _always_sql(chain):
         position = min(sink.argument_index, max(0, len(arguments) - 1))
         if arguments:
             return arguments[position]
     return ()
 
 
-def _match_sink(chain: str, spec: LanguageSpec) -> Optional[GenericSink]:
+def _always_sql(chain: str) -> bool:
+    """API chỉ nhận SQL: tên đơn khớp đuôi chuỗi gọi, tên có chấm khớp hậu tố."""
+    if chain in _ALWAYS_SQL or chain.rsplit(".", 1)[-1] in _ALWAYS_SQL:
+        return True
+    parts = chain.split(".")
+    for start in range(1, len(parts) - 1):
+        if ".".join(parts[start:]) in _ALWAYS_SQL:
+            return True
+    return False
+
+
+def _match_sink(chain: str, spec: LanguageSpec, receiver: bool = False) -> Optional[GenericSink]:
     best: Optional[GenericSink] = None
     best_length = -1
     for sink in spec.sinks:
+        if sink.receiver != receiver:
+            continue
         for name in sink.names:
             if chain == name or chain.endswith("." + name):
                 if len(name) > best_length:
@@ -1068,14 +1798,25 @@ def _following_interpolations(statement: Sequence[Token], index: int) -> List[To
     return collected
 
 
-def _next_declared_name(tokens: Sequence[Token], index: int) -> Optional[str]:
+def _next_declared_name(
+    tokens: Sequence[Token], index: int, separator: Optional[str] = None
+) -> Optional[str]:
     cursor = index
-    limit = min(len(tokens), index + 12)
+    # @RequestParam("id") String id: bỏ qua phần đối số của chính annotation.
+    if cursor < len(tokens) and tokens[cursor].kind == OP and tokens[cursor].text == "(":
+        after = _group_end(tokens, cursor)
+        if after is None:
+            return None
+        cursor = after
+    limit = min(len(tokens), cursor + 12)
     last: Optional[str] = None
     while cursor < limit:
         token = tokens[cursor]
         if token.kind == IDENT:
             last = token.text
+        elif token.kind == OP and separator is not None and token.text == separator:
+            # Kotlin/Scala/Swift: `@RequestParam id: String` -> tên đứng TRƯỚC dấu `:`.
+            break
         elif token.kind == OP and token.text in (",", ")"):
             break
         cursor += 1

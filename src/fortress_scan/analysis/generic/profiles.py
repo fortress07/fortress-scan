@@ -35,6 +35,18 @@ class GenericSink:
     require_sql: bool = False
     program_position: bool = False
     confidence: Confidence = Confidence.MEDIUM
+    # Giá trị nguy hiểm là VẾ TRƯỚC dấu chấm, không phải đối số:
+    # `"ls ${dir}".execute()` của Groovy, `cmd.execute()`.
+    receiver: bool = False
+    # `sql.rows("... ${id}")` của Groovy: GString đi vào đây được tách thành
+    # câu lệnh có tham số bind, nên chỉ phần NỐI chuỗi mới nguy hiểm.
+    interpolation_parameterized: bool = False
+    # fmt.Fprintf(w, "<p>%s</p>", id): giá trị nguy hiểm là MỌI đối số từ vị trí
+    # này trở đi, không phải một đối số duy nhất.
+    all_arguments_from: Optional[int] = None
+    # ... và chỉ khi đối số đầu là luồng phản hồi HTTP ( w, rw ), không phải
+    # os.Stderr hay một tệp log.
+    first_argument_names: FrozenSet[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -83,11 +95,39 @@ class LanguageSpec:
     # mang literal thì không phải "giá trị không phải hằng".
     literal_assignments: bool = False
     value_accessors: FrozenSet[str] = frozenset()
+    # `Dim x As String = ...` của VB.NET: kiểu đứng sau một TỪ KHOÁ chứ không
+    # phải một dấu như `:`.
+    annotation_keyword: Optional[str] = None
+    # VB.NET không phân biệt hoa thường: `process.start` vẫn là Process.Start.
+    case_insensitive: bool = False
+    # Phoenix: `def show(conn, %{"id" => id})` gắn id với tham số request.
+    conn_param_patterns: bool = False
     # sprintf(cmd, "ping %s", host): vết nhiễm của các đối số từ vị trí thứ hai
     # chảy vào đối số đích. ( đích, nguồn đầu tiên, ghi đè hay nối thêm ).
     propagators: Dict[str, Tuple[int, int, bool]] = field(default_factory=dict)
     # Bỏ các dòng #define/#include trước khi đọc, giữ một nhánh #if.
     strip_preprocessor: bool = False
+    # sb.append(x) / sb.Append(x) / b.WriteString(x): phương thức ĐỔ đối số vào
+    # chính đối tượng nhận, nên vết nhiễm đi vào `sb`.
+    receiver_propagators: FrozenSet[str] = frozenset()
+    # `new StringBuilder("SELECT ...")`: bộ dựng chuỗi khởi tạo bằng literal
+    # vẫn chỉ mang literal.
+    builder_constructors: FrozenSet[str] = frozenset()
+    # Bộ khử độc viết SAU giá trị: `id.toInt()` của Kotlin, `params[:n].to_i`
+    # của Ruby, `s.toInt` của Scala.
+    postfix_sanitizers: Dict[str, FrozenSet[Category]] = field(default_factory=dict)
+    # Tham số kiểu chuỗi của một hàm xử lý request được framework gắn thẳng từ
+    # request: `@GetMapping fun find(name: String)` của Spring,
+    # `[HttpGet] IActionResult Find(string name)` của ASP.NET.
+    handler_annotations: FrozenSet[str] = frozenset()
+    handler_parameter_types: FrozenSet[str] = frozenset()
+    # Annotation trên tham số đánh dấu nó KHÔNG đến từ request
+    # ( @AuthenticationPrincipal, @Value, [FromServices] ).
+    handler_parameter_exclusions: FrozenSet[str] = frozenset()
+    # `[FromQuery] string id` của ASP.NET: attribute trong ngoặc vuông.
+    attribute_sources: Dict[str, str] = field(default_factory=dict)
+    # `return "redirect:" + url` của Spring MVC là một lệnh chuyển hướng.
+    redirect_view_prefix: Optional[str] = None
 
 
 # Ép về số hoặc UUID thì không còn ký tự đặc biệt nào sống sót, ở bất kỳ nhóm
@@ -349,6 +389,7 @@ COMMAND_LINE_ARG = "tham số dòng lệnh"
 ENVIRONMENT_VARIABLE = "biến môi trường"
 QUERY_STRING = "query string HTTP"
 STANDARD_INPUT = "luồng nhập chuẩn"
+REQUEST_BOUND_PARAMETER = "tham số được framework gắn từ request"
 
 _JS_SOURCES: Dict[str, str] = {
     "req.query": QUERY_PARAM,
@@ -581,11 +622,197 @@ _JAVA_SINKS: Tuple[GenericSink, ...] = (
         "việc nạp class động",
     ),
     GenericSink(
-        ("XPathExpression.evaluate", "xpath.evaluate", "compile"),
+        # Không dùng "compile" trần: Pattern.compile( regex ) không phải XPath.
+        (
+            "XPathExpression.evaluate",
+            "xpath.evaluate",
+            "xPath.evaluate",
+            "XPath.evaluate",
+            "xpath.compile",
+            "xPath.compile",
+            "XPath.compile",
+            "newXPath.evaluate",
+            "newXPath.compile",
+        ),
         Category.XPATH,
         "FSB-XPATH-001",
         None,
         "một biểu thức XPath",
+    ),
+)
+
+SINK_LDAP_FILTER = "một bộ lọc LDAP"
+
+# Sink chung của mọi ngôn ngữ chạy trên JVM ( Java, Kotlin, Scala, Groovy ): cùng
+# một thư viện chuẩn, cùng Servlet, Spring, JDBC.
+_JVM_SINKS: Tuple[GenericSink, ...] = (
+    GenericSink(
+        (
+            "prepareStatement",
+            "prepareCall",
+            "addBatch",
+            "executeLargeUpdate",
+            "jdbcTemplate.query",
+            "jdbcTemplate.update",
+            "jdbcTemplate.batchUpdate",
+            "queryForMap",
+            "queryForRowSet",
+            "rawQuery",
+            "execSQL",
+            "session.createQuery",
+            "entityManager.createQuery",
+        ),
+        Category.SQL,
+        "FSB-SQL-001",
+        "FSB-SQL-002",
+        "một truy vấn SQL hoặc JPQL",
+        require_sql=True,
+    ),
+    GenericSink(
+        # new File(thu_muc, ten): phần nguy hiểm là tên ở đối số thứ hai.
+        ("File", "java.io.File", "FileSystemResource", "Paths.get", "Path.of"),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+        argument_index=1,
+    ),
+    GenericSink(
+        (
+            "FileInputStream",
+            "FileOutputStream",
+            "FileReader",
+            "FileWriter",
+            "RandomAccessFile",
+            "PrintWriter.File",
+            "Files.readAllBytes",
+            "Files.readString",
+            "Files.readAllLines",
+            "Files.lines",
+            "Files.newInputStream",
+            "Files.newOutputStream",
+            "Files.newBufferedReader",
+            "Files.newBufferedWriter",
+            "Files.write",
+            "Files.writeString",
+            "Files.delete",
+            "Files.deleteIfExists",
+            "Files.copy",
+            "Files.move",
+            "Source.fromFile",
+        ),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+    ),
+    GenericSink(
+        (
+            "URL",
+            "java.net.URL",
+            "URI.create",
+            "HttpGet",
+            "HttpPost",
+            "HttpPut",
+            "HttpDelete",
+            "HttpHead",
+            "Jsoup.connect",
+            "Request.Builder.url",
+            "restTemplate.getForObject",
+            "restTemplate.getForEntity",
+            "restTemplate.postForObject",
+            "restTemplate.postForEntity",
+            "restTemplate.exchange",
+            "Source.fromURL",
+        ),
+        Category.SSRF,
+        "FSB-SSRF-001",
+        None,
+        SINK_OUTBOUND_URL,
+    ),
+    GenericSink(
+        ("sendRedirect", "RedirectView", "respondRedirect"),
+        Category.REDIRECT,
+        "FSB-REDIR-001",
+        None,
+        SINK_REDIRECT,
+    ),
+    GenericSink(
+        ("setHeader", "addHeader"),
+        Category.HTTP_HEADER,
+        "FSB-HDR-001",
+        None,
+        "header HTTP của phản hồi",
+        argument_index=1,
+    ),
+    GenericSink(
+        (
+            "getWriter.write",
+            "getWriter.print",
+            "getWriter.println",
+            "getWriter.append",
+            "getWriter.printf",
+        ),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        SINK_RAW_HTML,
+    ),
+    GenericSink(
+        # ctx.search(base, filter, controls): bộ lọc ở đối số thứ hai.
+        (
+            "ctx.search",
+            "context.search",
+            "dirContext.search",
+            "ldapContext.search",
+            "DirContext.search",
+            "InitialDirContext.search",
+            "InitialLdapContext.search",
+            "ldapTemplate.search",
+            "ldapTemplate.searchForObject",
+            "ldapTemplate.authenticate",
+        ),
+        Category.LDAP,
+        "FSB-LDAP-001",
+        None,
+        SINK_LDAP_FILTER,
+        argument_index=1,
+    ),
+    GenericSink(
+        # Velocity.evaluate(ctx, writer, tag, template): template ở đối số thứ tư.
+        ("Velocity.evaluate", "velocityEngine.evaluate", "VelocityEngine.evaluate", "engine.evaluate"),
+        Category.TEMPLATE,
+        "FSB-TMPL-001",
+        "FSB-TMPL-002",
+        SINK_TEMPLATE_COMPILER,
+        argument_index=3,
+    ),
+    GenericSink(
+        ("jinjava.render", "Jinjava.render", "getLiteralTemplate", "StringTemplateLoader.putTemplate"),
+        Category.TEMPLATE,
+        "FSB-TMPL-001",
+        None,
+        SINK_TEMPLATE_COMPILER,
+    ),
+    GenericSink(
+        # SnakeYAML trước 2.0 dựng được kiểu bất kỳ từ tag; XStream trước 1.4.18
+        # không có danh sách cho phép mặc định. Chỉ báo khi dữ liệu là của người ngoài.
+        (
+            "Yaml.load",
+            "yaml.load",
+            "Yaml.loadAll",
+            "yaml.loadAll",
+            "fromXML",
+            "ObjectInputStream",
+            "XMLDecoder",
+            "SerializationUtils.deserialize",
+            "Kryo.readClassAndObject",
+            "kryo.readClassAndObject",
+        ),
+        Category.DESERIALIZATION,
+        "FSB-DESER-001",
+        None,
+        SINK_OBJECT_DESERIALIZER,
     ),
 )
 
@@ -602,9 +829,69 @@ _JAVA_SOURCES: Dict[str, str] = {
     "request.getPathInfo": "đường dẫn của request HTTP",
     "req.getParameter": QUERY_PARAM,
     "req.getHeader": HTTP_HEADER,
+    "request.getParameterMap": QUERY_PARAM,
+    "request.getPart": REQUEST_BODY,
+    "req.getParameterValues": QUERY_PARAM,
+    "req.getQueryString": QUERY_STRING,
+    "req.getInputStream": REQUEST_BODY,
+    "req.getReader": REQUEST_BODY,
+    "req.getCookies": HTTP_COOKIE,
     "System.getenv": ENVIRONMENT_VARIABLE,
     "System.getProperty": "thuộc tính hệ thống",
 }
+
+# Annotation xử lý request: tham số chuỗi KHÔNG annotation của chúng vẫn được
+# Spring gắn từ query/form cùng tên.
+_SPRING_HANDLERS: FrozenSet[str] = frozenset(
+    {"GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping", "RequestMapping"}
+)
+
+# Tham số mang annotation này lấy giá trị từ chỗ khác, không từ request.
+_SPRING_NOT_REQUEST: FrozenSet[str] = frozenset(
+    {
+        "AuthenticationPrincipal",
+        "Value",
+        "RequestAttribute",
+        "SessionAttribute",
+        "ModelAttribute",
+        "CurrentSecurityContext",
+        "Autowired",
+    }
+)
+
+_JVM_SANITIZERS: Dict[str, FrozenSet[Category]] = {
+    "Integer.parseInt": _ALL_CATEGORIES,
+    "Integer.valueOf": _ALL_CATEGORIES,
+    "Long.parseLong": _ALL_CATEGORIES,
+    "Long.valueOf": _ALL_CATEGORIES,
+    "Double.parseDouble": _ALL_CATEGORIES,
+    "UUID.fromString": _ALL_CATEGORIES,
+    "Encode.forHtml": _HTML_ONLY,
+    "StringEscapeUtils.escapeHtml4": _HTML_ONLY,
+    "HtmlUtils.htmlEscape": _HTML_ONLY,
+    "ESAPI.encoder": _HTML_ONLY,
+    # URLEncoder mã hoá cả dấu nháy đơn, dấu `/` và ký tự điều khiển.
+    "URLEncoder.encode": _ALL_CATEGORIES,
+    "FilenameUtils.getName": frozenset({Category.PATH, Category.DYNAMIC_IMPORT}),
+    "Encode.forLdap": frozenset({Category.LDAP}),
+    "LdapEncoder.filterEncode": frozenset({Category.LDAP}),
+}
+
+_JVM_POSTFIX_SANITIZERS: Dict[str, FrozenSet[Category]] = {
+    "toInt": _ALL_CATEGORIES,
+    "toLong": _ALL_CATEGORIES,
+    "toShort": _ALL_CATEGORIES,
+    "toDouble": _ALL_CATEGORIES,
+    "toFloat": _ALL_CATEGORIES,
+    "toBoolean": _ALL_CATEGORIES,
+    "toIntOrNull": _ALL_CATEGORIES,
+    "toLongOrNull": _ALL_CATEGORIES,
+    "toDoubleOrNull": _ALL_CATEGORIES,
+    "toInteger": _ALL_CATEGORIES,
+    "toBigDecimal": _ALL_CATEGORIES,
+}
+
+_JVM_BUILDERS: FrozenSet[str] = frozenset({"StringBuilder", "StringBuffer", "StringWriter"})
 
 _JAVA_ANNOTATIONS: Dict[str, str] = {
     "RequestParam": QUERY_PARAM,
@@ -720,6 +1007,104 @@ _GO_SINKS: Tuple[GenericSink, ...] = (
         None,
         "một bộ giải mã",
     ),
+    GenericSink(
+        (
+            "os.Open",
+            "os.OpenFile",
+            "os.ReadFile",
+            "ioutil.ReadFile",
+            "os.Create",
+            "os.WriteFile",
+            "ioutil.WriteFile",
+            "os.Remove",
+            "os.RemoveAll",
+            "os.ReadDir",
+            "c.File",
+            "c.FileAttachment",
+            "ctx.SendFile",
+            "c.SendFile",
+        ),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+    ),
+    GenericSink(
+        # http.ServeFile(w, r, name)
+        ("http.ServeFile",),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+        argument_index=2,
+    ),
+    GenericSink(
+        # http.Redirect(w, r, url, code)
+        ("http.Redirect",),
+        Category.REDIRECT,
+        "FSB-REDIR-001",
+        None,
+        SINK_REDIRECT,
+        argument_index=2,
+    ),
+    GenericSink(
+        # c.Redirect(code, url) của gin và echo.
+        ("c.Redirect",),
+        Category.REDIRECT,
+        "FSB-REDIR-001",
+        None,
+        SINK_REDIRECT,
+        argument_index=1,
+    ),
+    GenericSink(
+        ("http.Get", "http.Post", "http.Head", "http.PostForm"),
+        Category.SSRF,
+        "FSB-SSRF-001",
+        None,
+        SINK_OUTBOUND_URL,
+    ),
+    GenericSink(
+        ("http.NewRequest",),
+        Category.SSRF,
+        "FSB-SSRF-001",
+        None,
+        SINK_OUTBOUND_URL,
+        argument_index=1,
+    ),
+    GenericSink(
+        ("http.NewRequestWithContext",),
+        Category.SSRF,
+        "FSB-SSRF-001",
+        None,
+        SINK_OUTBOUND_URL,
+        argument_index=2,
+    ),
+    GenericSink(
+        # fmt.Fprintf(w, "<p>%s</p>", name): chỉ khi đích là luồng phản hồi HTTP.
+        ("fmt.Fprintf", "fmt.Fprint", "fmt.Fprintln", "io.WriteString"),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        SINK_RAW_HTML,
+        all_arguments_from=1,
+        first_argument_names=frozenset({"w", "rw", "writer", "resp", "res"}),
+    ),
+    GenericSink(
+        ("w.Write", "rw.Write", "c.Writer.Write"),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        SINK_RAW_HTML,
+        all_arguments_from=0,
+    ),
+    GenericSink(
+        ("w.Header.Set", "w.Header.Add", "c.Header"),
+        Category.HTTP_HEADER,
+        "FSB-HDR-001",
+        None,
+        "header HTTP của phản hồi",
+        argument_index=1,
+    ),
 )
 
 _GO_SOURCES: Dict[str, str] = {
@@ -733,17 +1118,44 @@ _GO_SOURCES: Dict[str, str] = {
     "mux.Vars": PATH_PARAM,
     "c.Param": PATH_PARAM,
     "c.Query": QUERY_PARAM,
+    "c.DefaultQuery": QUERY_PARAM,
+    "c.QueryArray": QUERY_PARAM,
+    "c.PostForm": FORM_FIELD,
+    "c.DefaultPostForm": FORM_FIELD,
+    "c.GetHeader": HTTP_HEADER,
+    "c.Cookie": HTTP_COOKIE,
+    "c.QueryParam": QUERY_PARAM,
+    "c.FormValue": FORM_FIELD,
+    "c.Params": PATH_PARAM,
+    "c.Query.Get": QUERY_PARAM,
+    "r.URL.Path": "đường dẫn của request HTTP",
+    "r.URL.RawQuery": QUERY_STRING,
+    "r.Form": FORM_FIELD,
+    "r.PostForm": FORM_FIELD,
+    "r.Header": HTTP_HEADER,
+    "r.Cookie": HTTP_COOKIE,
+    "r.PathValue": PATH_PARAM,
+    "r.Referer": HTTP_HEADER,
+    "r.UserAgent": HTTP_HEADER,
+    "req.URL.Path": "đường dẫn của request HTTP",
+    "req.Header": HTTP_HEADER,
+    "req.Body": REQUEST_BODY,
+    "req.PostFormValue": FORM_FIELD,
+    "chi.URLParam": PATH_PARAM,
     "os.Args": COMMAND_LINE_ARG,
     "os.Getenv": ENVIRONMENT_VARIABLE,
 }
 
 _CSHARP_SINKS: Tuple[GenericSink, ...] = (
     GenericSink(
+        # Process.Start(file, args) không qua shell; chỉ dạng
+        # Process.Start("cmd.exe", "/c " + x) là lệnh shell ( bắt riêng ).
         ("Process.Start", "ProcessStartInfo"),
         Category.COMMAND,
-        "FSB-CMD-001",
-        "FSB-CMD-003",
+        "FSB-CMD-002",
+        None,
         SINK_PROCESS_SPAWN,
+        program_position=True,
         confidence=Confidence.HIGH,
     ),
     GenericSink(
@@ -792,6 +1204,116 @@ _CSHARP_SINKS: Tuple[GenericSink, ...] = (
         "việc biên dịch lúc chạy",
         confidence=Confidence.HIGH,
     ),
+    GenericSink(
+        (
+            "File.ReadAllText",
+            "File.ReadAllBytes",
+            "File.ReadAllLines",
+            "File.ReadLines",
+            "File.OpenRead",
+            "File.OpenText",
+            "File.Open",
+            "File.WriteAllText",
+            "File.WriteAllBytes",
+            "File.AppendAllText",
+            "File.Create",
+            "File.Delete",
+            "File.Copy",
+            "File.Move",
+            "FileStream",
+            "StreamReader",
+            "StreamWriter",
+            "PhysicalFile",
+            "Directory.Delete",
+            "Directory.GetFiles",
+            "Directory.CreateDirectory",
+        ),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+    ),
+    GenericSink(
+        ("Redirect", "RedirectPermanent", "Response.Redirect", "RedirectPreserveMethod"),
+        Category.REDIRECT,
+        "FSB-REDIR-001",
+        None,
+        SINK_REDIRECT,
+    ),
+    GenericSink(
+        (
+            "GetStringAsync",
+            "GetByteArrayAsync",
+            "GetStreamAsync",
+            "WebRequest.Create",
+            "HttpWebRequest.Create",
+            "DownloadString",
+            "DownloadData",
+            "DownloadFile",
+            "DownloadStringTaskAsync",
+            "OpenRead.WebClient",
+            "httpClient.GetAsync",
+            "_httpClient.GetAsync",
+            "HttpClient.GetAsync",
+            "httpClient.PostAsync",
+            "_httpClient.PostAsync",
+            "httpClient.SendAsync",
+        ),
+        Category.SSRF,
+        "FSB-SSRF-001",
+        None,
+        SINK_OUTBOUND_URL,
+    ),
+    GenericSink(
+        ("HttpRequestMessage",),
+        Category.SSRF,
+        "FSB-SSRF-001",
+        None,
+        SINK_OUTBOUND_URL,
+        argument_index=1,
+    ),
+    GenericSink(
+        ("Html.Raw", "Response.Write", "HtmlString", "MarkupString"),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        SINK_RAW_HTML,
+    ),
+    GenericSink(
+        ("Response.Headers.Add", "Response.AppendHeader", "Response.AddHeader", "Headers.Append"),
+        Category.HTTP_HEADER,
+        "FSB-HDR-001",
+        None,
+        "header HTTP của phản hồi",
+        argument_index=1,
+    ),
+    GenericSink(
+        ("DirectorySearcher",),
+        Category.LDAP,
+        "FSB-LDAP-001",
+        None,
+        "một bộ lọc LDAP",
+    ),
+    GenericSink(
+        ("SelectNodes", "SelectSingleNode", "XPathNavigator.Evaluate", "XPathNavigator.Select"),
+        Category.XPATH,
+        "FSB-XPATH-001",
+        None,
+        "một biểu thức XPath",
+    ),
+)
+
+# Attribute trên tham số của action ASP.NET Core.
+_CSHARP_ATTRIBUTE_SOURCES: Dict[str, str] = {
+    "FromQuery": QUERY_PARAM,
+    "FromRoute": PATH_PARAM,
+    "FromForm": FORM_FIELD,
+    "FromBody": REQUEST_BODY,
+    "FromHeader": HTTP_HEADER,
+}
+
+_CSHARP_HANDLERS: FrozenSet[str] = frozenset(
+    {"HttpGet", "HttpPost", "HttpPut", "HttpDelete", "HttpPatch", "Route", "AcceptVerbs"}
 )
 
 NETWORK_DATA = "dữ liệu nhận qua mạng"
@@ -927,6 +1449,19 @@ _CSHARP_SOURCES: Dict[str, str] = {
     "Request.Cookies": HTTP_COOKIE,
     "Request.Body": REQUEST_BODY,
     "Request.Query": QUERY_PARAM,
+    "Request.RouteValues": PATH_PARAM,
+    "Request.Path": "đường dẫn của request HTTP",
+    "Request.RawUrl": "đường dẫn của request HTTP",
+    "Request.Url": "đường dẫn của request HTTP",
+    "Request.UserAgent": HTTP_HEADER,
+    "HttpContext.Request.Query": QUERY_PARAM,
+    "HttpContext.Request.Form": FORM_FIELD,
+    "HttpContext.Request.Headers": HTTP_HEADER,
+    "HttpContext.Request.Cookies": HTTP_COOKIE,
+    "HttpContext.Request.Body": REQUEST_BODY,
+    "context.Request.Query": QUERY_PARAM,
+    "context.Request.Form": FORM_FIELD,
+    "context.Request.Headers": HTTP_HEADER,
     "Environment.GetEnvironmentVariable": ENVIRONMENT_VARIABLE,
 }
 
@@ -1428,17 +1963,16 @@ SPECS: Dict[str, LanguageSpec] = {
         language=JAVA,
         lexer=_JAVA_LEXER,
         sources=_JAVA_SOURCES,
-        sinks=_JAVA_SINKS,
-        sanitizers={
-            "Integer.parseInt": _ALL_CATEGORIES,
-            "Long.parseLong": _ALL_CATEGORIES,
-            "Double.parseDouble": _ALL_CATEGORIES,
-            "UUID.fromString": _ALL_CATEGORIES,
-            "Encode.forHtml": _HTML_ONLY,
-            "StringEscapeUtils.escapeHtml4": _HTML_ONLY,
-            "ESAPI.encoder": _HTML_ONLY,
-        },
+        sinks=_JAVA_SINKS + _JVM_SINKS,
+        sanitizers=_JVM_SANITIZERS,
         annotation_sources=_JAVA_ANNOTATIONS,
+        receiver_propagators=frozenset({"append", "insert"}),
+        builder_constructors=_JVM_BUILDERS,
+        handler_annotations=_SPRING_HANDLERS,
+        handler_parameter_types=frozenset({"String"}),
+        handler_parameter_exclusions=_SPRING_NOT_REQUEST,
+        redirect_view_prefix="redirect:",
+        value_accessors=frozenset({"toString"}),
     ),
     RUBY: LanguageSpec(
         language=RUBY,
@@ -1470,9 +2004,14 @@ SPECS: Dict[str, LanguageSpec] = {
             # url.QueryEscape mã hoá cả dấu nháy đơn.
             "url.QueryEscape": _ALL_CATEGORIES,
             "template.HTMLEscapeString": _HTML_ONLY,
+            "filepath.Base": frozenset({Category.PATH, Category.DYNAMIC_IMPORT}),
+            "path.Base": frozenset({Category.PATH, Category.DYNAMIC_IMPORT}),
+            "uuid.Parse": _ALL_CATEGORIES,
         },
         declaration_keywords=frozenset({"var", "const"}),
         assignment_operators=("=", ":=", "+="),
+        receiver_propagators=frozenset({"WriteString"}),
+        value_accessors=frozenset({"String"}),
     ),
     CSHARP: LanguageSpec(
         language=CSHARP,
@@ -1483,12 +2022,26 @@ SPECS: Dict[str, LanguageSpec] = {
             "int.Parse": _ALL_CATEGORIES,
             "Int32.Parse": _ALL_CATEGORIES,
             "Int64.Parse": _ALL_CATEGORIES,
+            "long.Parse": _ALL_CATEGORIES,
             "Convert.ToInt32": _ALL_CATEGORIES,
+            "Convert.ToInt64": _ALL_CATEGORIES,
             "Guid.Parse": _ALL_CATEGORIES,
             "HttpUtility.HtmlEncode": _HTML_ONLY,
+            "WebUtility.HtmlEncode": _HTML_ONLY,
+            "HtmlEncoder.Default.Encode": _HTML_ONLY,
             "AntiXss.HtmlEncode": _HTML_ONLY,
+            "Uri.EscapeDataString": _ALL_CATEGORIES,
+            "HttpUtility.UrlEncode": _ALL_CATEGORIES,
+            "Path.GetFileName": frozenset({Category.PATH, Category.DYNAMIC_IMPORT}),
         },
         declaration_keywords=frozenset({"var", "string", "int", "object"}),
+        receiver_propagators=frozenset({"Append", "AppendLine", "AppendFormat", "Insert"}),
+        builder_constructors=frozenset({"StringBuilder"}),
+        value_accessors=frozenset({"ToString"}),
+        attribute_sources=_CSHARP_ATTRIBUTE_SOURCES,
+        handler_annotations=_CSHARP_HANDLERS,
+        handler_parameter_types=frozenset({"string", "String"}),
+        handler_parameter_exclusions=frozenset({"FromServices", "FromKeyedServices"}),
     ),
     SHELL: LanguageSpec(
         language=SHELL,
@@ -1642,6 +2195,17 @@ SPECS: Dict[str, LanguageSpec] = {
         value_accessors=frozenset({"c_str", "data", "str", "UTF8String"}),
     ),
 }
+
+
+def _register_application_languages() -> None:
+    # Đặt ở tệp riêng để bảng này không phình thêm hàng nghìn dòng; tệp đó
+    # dùng lại các hằng ở trên nên chỉ nạp được sau khi chúng đã có.
+    from .profiles_app import APPLICATION_SPECS
+
+    SPECS.update(APPLICATION_SPECS)
+
+
+_register_application_languages()
 
 
 def spec_for(language: str) -> Optional[LanguageSpec]:
