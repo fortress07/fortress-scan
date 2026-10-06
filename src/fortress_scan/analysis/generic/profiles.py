@@ -79,6 +79,10 @@ _COMMAND_ONLY: FrozenSet[Category] = frozenset({Category.COMMAND})
 # trả về "a;id" -- không giúp gì cho một câu lệnh shell.
 _PATH_ONLY: FrozenSet[Category] = frozenset({Category.DYNAMIC_IMPORT})
 
+# path.basename() của Node bỏ mọi thành phần thư mục: không còn `../` hay
+# đường dẫn tuyệt đối để thoát khỏi thư mục gốc mà mã nối vào.
+_TRAVERSAL: FrozenSet[Category] = frozenset({Category.PATH, Category.DYNAMIC_IMPORT})
+
 # encodeURIComponent() mã hoá < > ; | & $ ` nhưng KHÔNG mã hoá dấu nháy đơn:
 # nó nằm trong tập ký tự không dè dặt của RFC 3986. Nên nó chặn được XSS và
 # lệnh shell, còn SQL thì không.
@@ -288,6 +292,15 @@ _JS_SINKS: Tuple[GenericSink, ...] = (
         "FSB-XSS-001",
         None,
         SINK_RAW_HTML,
+    ),
+    # Express gửi chuỗi với Content-Type text/html; object thì thành JSON
+    # ( analyzer bỏ qua đối số là object/array literal ).
+    GenericSink(
+        ("res.send", "response.send", "res.end", "response.end"),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        "phản hồi HTML của Express",
     ),
     GenericSink(
         ("unserialize", "node_serialize.unserialize", "serialize.unserialize"),
@@ -1233,6 +1246,8 @@ SPECS: Dict[str, LanguageSpec] = {
             "validator.escape": _HTML_ONLY,
             "shellQuote.quote": _COMMAND_ONLY,
             "escapeHtml": _HTML_ONLY,
+            "path.basename": _TRAVERSAL,
+            "basename": _TRAVERSAL,
         },
         declaration_keywords=frozenset({"var", "let", "const"}),
     ),
@@ -1259,6 +1274,8 @@ SPECS: Dict[str, LanguageSpec] = {
             "DOMPurify.sanitize": _HTML_ONLY,
             "sanitizeHtml": _HTML_ONLY,
             "escapeHtml": _HTML_ONLY,
+            "path.basename": _TRAVERSAL,
+            "basename": _TRAVERSAL,
         },
         declaration_keywords=frozenset({"var", "let", "const"}),
         annotation_separator=":",

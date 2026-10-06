@@ -79,6 +79,12 @@ _REQUEST_DECORATORS = frozenset({"Req", "Request"})
 _ROUTE_METHODS = frozenset({"get", "post", "put", "delete", "patch", "all", "use", "options", "head"})
 _ROUTER_OBJECTS = frozenset({"app", "router", "server", "api", "routes", "route", "r", "fastify"})
 _NOT_FACTORIES = frozenset({"require", "async", "import", "function", "super", "this"})
+_WRAPPER_TYPES = frozenset({"Promise", "Observable", "Readonly"})
+_PRIMITIVE_TYPES = frozenset(
+    {"string", "number", "boolean", "void", "any", "unknown", "never", "object", "undefined", "null", "bigint", "symbol"}
+)
+# Hàm bọc giữ nguyên hành vi của hàm được bọc: `util.promisify(exec)`.
+_ALIAS_WRAPPERS = frozenset({"promisify", "util.promisify", "Bluebird.promisify", "Promise.promisify", "pify"})
 _QUEUE_CLASSES = frozenset({"Queue", "Bull", "BullQueue"})
 # Lời gọi cấu hình engine template cho cả ứng dụng: `swig.setDefaults(...)`,
 # `nunjucks.configure(...)`, `new nunjucks.Environment(...)`.
@@ -602,12 +608,26 @@ class _JsExtractor:
             body_start=body_start,
             body_end=body_end,
             line=self.tokens[anchor].line,
+            return_type=self._return_annotation(params_close, body),
             expression_body=expression,
             variadic=variadic,
         )
         self._store(function, anchor)
         for request_name in request_names:
             self.facts.request_objects.append((body_start, body_end, request_name, "express"))
+
+    def _return_annotation(self, params_close: int, body: int) -> str:
+        """Kiểu trả về TypeScript `): Repo {` hoặc `): Promise<Repo> {`, hoặc ""."""
+        s = self.s
+        colon = s.sig(params_close + 1)
+        if not s.is_op(colon, ":") or colon >= body:
+            return ""
+        chain, after = s.chain_at(s.sig(colon + 1))
+        if chain in _WRAPPER_TYPES and s.is_op(s.sig(after), "<"):
+            chain, after = s.chain_at(s.sig(s.sig(after) + 1))
+        if not chain or chain in _PRIMITIVE_TYPES or s.is_op(s.sig(after), "[", "|"):
+            return ""
+        return chain
 
     def _store(self, function: FunctionDef, anchor: int) -> None:
         self.function_at_open[function.body_start] = function
@@ -952,14 +972,22 @@ class _JsExtractor:
                 type_name = chain or ""
             elif s.is_ident(value):
                 chain, after = s.chain_at(value)
+                if chain in _ALIAS_WRAPPERS and s.is_op(s.sig(after), "(") and "." not in target:
+                    wrapped, wrapped_end = s.chain_at(s.sig(s.sig(after) + 1))
+                    if wrapped and s.is_op(s.sig(wrapped_end), ")"):
+                        self.facts.aliases[target] = wrapped
+                        continue
                 if chain and s.is_op(s.sig(after), "(") and chain not in _NOT_FACTORIES:
                     deferred = chain
                 elif chain and target.startswith("this.") and s.sig(after) < s.size:
-                    # `this.repo = repo` trong constructor có tham số mang kiểu.
+                    # `this.repo = repo` trong constructor: kiểu khai báo của
+                    # tham số, hoặc ( JS thuần ) kiểu của đối số ở nơi `new`.
                     owner_function = _innermost(by_body, index)
                     if owner_function is not None and chain in owner_function.params:
                         position = owner_function.params.index(chain)
                         type_name = owner_function.param_types[position]
+                        if not type_name and self._constructor_like(owner_function, index):
+                            type_name = "(param)%d" % position
             if not type_name and not deferred:
                 continue
             if target.startswith("this."):
@@ -1005,8 +1033,161 @@ class _JsExtractor:
                     if previous == opener or s.is_op(previous, ";", "}") or s.is_ident(previous, *_MODIFIERS) or self._ends_decorator(previous):
                         type_chain, _ = s.chain_at(s.sig(s.sig(cursor + 1) + 1))
                         if type_chain:
-                            self.facts.classes[owner].fields.setdefault(s.text(cursor), type_chain)
+                            fields = self.facts.classes[owner].fields
+                            if fields.get(s.text(cursor), "(param)").startswith("(param)"):
+                                fields[s.text(cursor)] = type_chain
                 cursor += 1
+        self._object_types(by_body)
+        self._factory_returns(by_body)
+        self._constructions(by_body)
+
+    def _constructor_like(self, function: FunctionDef, index: int) -> bool:
+        if function.name == "constructor":
+            return True
+        # Hàm khởi tạo ES5: `function UserDAO(db) { this.db = db; }`.
+        return bool(function.name) and not function.owner and function.name == self._this_owner(index)
+
+    def _object_types(self, by_body: List[FunctionDef]) -> None:
+        """Object literal mang đối tượng có kiểu thành một "lớp" vô danh.
+
+            function createServices(db) {
+              return { users: new UserService(new UserRepo(db)), files: fileService };
+            }
+            const api = { users: new UserService(repo) };
+
+        Trường nào là `new X()` hay biến đã biết kiểu thì nhớ kiểu; trường nào
+        là hàm thì thành phương thức. Lời gọi `services.users.find(x)` nhờ đó
+        đi tới đúng `UserService.find`.
+        """
+        s = self.s
+        for opener, (kind, name) in self.containers.items():
+            if kind != "object":
+                continue
+            previous = s.back(opener - 1)
+            returned = s.is_ident(previous, "return")
+            if not returned and not (name and "." not in name and s.is_op(previous, "=")):
+                continue
+            close = s.closing(opener)
+            if close < 0:
+                continue
+            function = _innermost(by_body, opener)
+            env = self.facts.envs.get(function.key, {}) if function is not None else self.facts.module_types
+            deferred = self.facts.deferred.get(function.key, {}) if function is not None else self.facts.module_deferred
+            synthetic = "<obj:%d>" % opener
+            info = ClassDef(path=self.path, name=synthetic, qualified=synthetic)
+            typed = False
+            for start, end in s.split_commas(opener + 1, close):
+                first = s.sig(start)
+                if not s.is_ident(first):
+                    continue
+                key = s.text(first)
+                following = s.sig(first + 1)
+                value = first if following >= end else (s.sig(following + 1) if s.is_op(following, ":") else -1)
+                if s.is_op(following, "("):
+                    method = self._function_starting(following, close)
+                    if method is not None:
+                        info.methods.setdefault(key, []).append(method)
+                    continue
+                if value < 0:
+                    continue
+                if s.is_ident(value, "new"):
+                    chain, _ = s.chain_at(s.sig(value + 1))
+                    if chain:
+                        info.fields[key] = chain
+                        typed = True
+                    continue
+                if s.is_ident(value, "function", "async") or s.is_op(value, "("):
+                    method = self._function_starting(value, end)
+                    if method is not None:
+                        info.methods.setdefault(key, []).append(method)
+                    continue
+                chain, after = s.chain_at(value)
+                if not chain or s.sig(after) < end:
+                    continue
+                if chain in env:
+                    info.fields[key] = env[chain]
+                    typed = True
+                elif chain in deferred:
+                    info.fields[key] = "()" + deferred[chain]
+                    typed = True
+            if not typed and not (returned and info.methods):
+                continue
+            self.facts.classes[synthetic] = info
+            if returned:
+                if function is not None:
+                    self.facts.envs.setdefault(function.key, {}).setdefault("<return>", synthetic)
+            elif function is None:
+                self.facts.module_types.setdefault(name, synthetic)
+            else:
+                self.facts.envs.setdefault(function.key, {}).setdefault(name, synthetic)
+
+    def _function_starting(self, start: int, end: int) -> Optional[FunctionDef]:
+        """Hàm ( có tên hay vô danh ) mà thân nằm trong đoạn [start, end)."""
+        best: Optional[FunctionDef] = None
+        for function in self.functions + self.anonymous:
+            if start <= function.body_start <= end:
+                if best is None or function.body_start < best.body_start:
+                    best = function
+        return best
+
+    def _factory_returns(self, by_body: List[FunctionDef]) -> None:
+        """`return new Repo(db)` / `return repo` cho biết hàm factory trả về kiểu gì."""
+        s = self.s
+        for index in range(s.size):
+            if not s.is_ident(index, "return"):
+                continue
+            function = _innermost(by_body, index)
+            if function is None:
+                continue
+            value = s.sig(index + 1)
+            if s.is_ident(value, "await"):
+                value = s.sig(value + 1)
+            type_name = ""
+            if s.is_ident(value, "new"):
+                chain, _ = s.chain_at(s.sig(value + 1))
+                type_name = chain or ""
+            elif s.is_ident(value):
+                chain, after = s.chain_at(value)
+                ends = after >= s.size or self.tokens[after].kind == NEWLINE or s.is_op(after, ";", "}")
+                if chain and "." not in chain and ends:
+                    type_name = self.facts.envs.get(function.key, {}).get(chain, "")
+                    if not type_name and chain in self.facts.deferred.get(function.key, {}):
+                        type_name = "()" + self.facts.deferred[function.key][chain]
+            if type_name:
+                self.facts.envs.setdefault(function.key, {}).setdefault("<return>", type_name)
+
+    def _constructions(self, by_body: List[FunctionDef]) -> None:
+        s = self.s
+        for index in range(s.size):
+            if not s.is_ident(index, "new"):
+                continue
+            chain, after = s.chain_at(s.sig(index + 1))
+            if not chain:
+                continue
+            opener = s.skip_generic(s.sig(after), s.size)
+            opener = s.sig(opener)
+            if not s.is_op(opener, "("):
+                continue
+            close = s.closing(opener)
+            if close < 0:
+                continue
+            arguments: List[str] = []
+            for start, end in s.split_commas(opener + 1, close):
+                first = s.sig(start)
+                described = ""
+                if s.is_ident(first, "new"):
+                    inner, _ = s.chain_at(s.sig(first + 1))
+                    described = "new:" + inner if inner else ""
+                elif s.is_ident(first):
+                    name, name_end = s.chain_at(first)
+                    if name and s.sig(name_end) >= end:
+                        described = "var:" + name
+                arguments.append(described)
+            if any(arguments):
+                function = _innermost(by_body, index)
+                self.facts.constructions.append(
+                    (chain, function.body_start if function is not None else -1, tuple(arguments))
+                )
 
     # ------------------------------------------------------- routes / queues
     def _routes_and_queues(self) -> None:

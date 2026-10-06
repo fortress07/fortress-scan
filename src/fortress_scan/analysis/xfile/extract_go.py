@@ -211,6 +211,7 @@ class _GoExtractor:
             line=self.tokens[name_index].line,
             return_type=_clean_type(return_type),
             variadic=variadic,
+            receiver=receiver_name if owner else "",
         )
         self.facts.functions.append(function)
         if owner:

@@ -9,7 +9,7 @@ from ...core.registry import get_rule
 from ..base import Analyzer, AnalysisUnit, FindingBuilder
 from ..python.specs import looks_like_sql
 from ..xfile.context import PROBE, SUMMARY, FileContext
-from ..xfile.model import Callee, FunctionDef, SinkHit, SourceReturn, Summary
+from ..xfile.model import RECEIVER, Callee, FunctionDef, SinkHit, SourceReturn, Summary
 from ..xfile.stream import TokenIndex
 from . import folding
 from .lexer import IDENT, NEWLINE, NUMBER, OP, STRING, Token, tokenize
@@ -112,8 +112,12 @@ class GenericAnalyzer(Analyzer):
             analysis.declared = set(declared)
         else:
             analysis._collect_declarations(tokens)
+        _seed_receiver(analysis, function, project, unit)
         for position, (name, label) in enumerate(zip(function.params, function.param_sources)):
             if not name:
+                continue
+            if position < len(function.param_types) and _scalar_type(function.param_types[position], unit.language):
+                # `long id`, `id int`: kiểu số của Java/Go không chở được chuỗi.
                 continue
             if label:
                 analysis.tainted[name] = TaintMark(label, function.line, Confidence.HIGH)
@@ -171,6 +175,8 @@ class _Analysis:
         self._switches: Dict[int, List[object]] = {}
         # Tập hợp cục bộ mô phỏng được: map theo khóa hằng, list theo chỉ số hằng.
         self.collections: Dict[str, "_Collection"] = {}
+        # Tên chỉ là vỏ bọc của hàm khác ( `const run = util.promisify(exec)` ).
+        self.aliases: Dict[str, str] = {}
 
     def _in_conditional(self, token: Token) -> bool:
         index = self.context.index if self.context is not None else self._index
@@ -184,10 +190,11 @@ class _Analysis:
         self._collect_declarations(tokens)
         self._seed_annotations(tokens)
         if self.context is not None:
-            for name, (label, line) in self.context.project.seeded_parameters(
+            for name, (label, line, type_name) in self.context.project.seeded_parameters(
                 self.unit.relative_path
             ).items():
-                self.tainted.setdefault(name, TaintMark(label, line, Confidence.HIGH))
+                if not _scalar_type(type_name, self.spec.language):
+                    self.tainted.setdefault(name, TaintMark(label, line, Confidence.HIGH))
         statements = _split_statements(tokens, self.literal_braces)
         for statement in statements[:_MAX_STATEMENTS]:
             self.budget.spend()
@@ -257,8 +264,8 @@ class _Analysis:
             if token.kind == OP and token.text == "@":
                 label = self.spec.annotation_sources.get(tokens[index + 1].text)
                 if label is not None:
-                    name = _next_declared_name(tokens, index + 2)
-                    if name is not None:
+                    name, type_name = _annotated_parameter(tokens, index + 2)
+                    if name is not None and not _scalar_type(type_name or "", self.spec.language):
                         self.tainted[name] = TaintMark(label, token.line, Confidence.HIGH)
             index += 1
 
@@ -268,6 +275,8 @@ class _Analysis:
         if self.spec.language == "shell":
             self._analyze_shell_statement(statement)
             return
+        if statement[0].kind == IDENT and statement[0].text == "if":
+            self._allowlist_guard(statement)
         if self.context is not None:
             if self._dead(statement):
                 return
@@ -279,6 +288,58 @@ class _Analysis:
         self._analyze_assignment(statement)
         self._analyze_calls(statement)
         self._analyze_backticks(statement)
+
+    def _allowlist_guard(self, statement: Sequence[Token]) -> None:
+        """`if (!ALLOWED.contains(x)) throw ...;` -- sau câu này `x` chỉ còn giá trị hợp lệ.
+
+        Chỉ nhận khi thân `if` chắc chắn thoát ( throw / return / continue /
+        break ở cấp ngoài cùng của thân ), và câu `if` không nằm trong một khối
+        điều kiện khác -- ở đó nhánh không đi qua phép kiểm vẫn mang giá trị cũ.
+        """
+        if len(statement) < 4 or statement[1].kind != OP or statement[1].text != "(":
+            return
+        after = _group_end(statement, 1)
+        if after is None:
+            return
+        closing = after - 1
+        guard = _allowlist_test(statement[2:closing], self.spec)
+        if guard is None or not guard[1]:
+            return
+        if self._in_conditional(statement[0]):
+            return
+        body = [token for token in statement[closing + 1 :] if token.kind != NEWLINE]
+        if body:
+            exits = body[0].kind == IDENT and body[0].text in _EXIT_KEYWORDS
+        else:
+            exits = self._block_exits(statement[closing])
+        if not exits:
+            return
+        name = guard[0]
+        self.tainted.pop(name, None)
+        self.sanitized.add(name)
+
+    def _block_exits(self, closing_paren: Token) -> bool:
+        index = self.context.index if self.context is not None else self._index
+        if index is None:
+            return False
+        position = index.index_of(closing_paren)
+        if position is None:
+            return False
+        stream = index.stream
+        brace = stream.sig(position + 1)
+        if not stream.is_op(brace, "{"):
+            return False
+        end = stream.closing(brace)
+        cursor = brace + 1
+        while 0 < end and cursor < end:
+            if stream.is_op(cursor, "{", "(", "["):
+                inner = stream.closing(cursor)
+                cursor = inner + 1 if inner > 0 else cursor + 1
+                continue
+            if stream.is_ident(cursor, *_EXIT_KEYWORDS):
+                return True
+            cursor += 1
+        return False
 
     # ------------------------------------------------------------------
     # Nhánh chết: điều kiện gập được thành hằng.
@@ -453,10 +514,12 @@ class _Analysis:
         return values
 
     def _select_branch(self, right: Sequence[Token], anchor: Token) -> Sequence[Token]:
-        """`c ? a : b` với `c` gập được: chỉ vế được chọn mang dữ liệu đi."""
+        """`c ? a : b` với `c` gập được: chỉ vế được chọn mang dữ liệu đi.
+
+        `ALLOWED.includes(f) ? f : "pdf"`: vế `f` chỉ được chọn khi `f` nằm
+        trong danh sách cho phép, nên giá trị ra chỉ còn mang vết của vế kia.
+        """
         consts = self._consts(anchor)
-        if consts is None:
-            return right
         depth = 0
         question = -1
         pending = 0
@@ -474,10 +537,19 @@ class _Analysis:
             elif depth == 0 and token.text == ":" and question >= 0:
                 pending -= 1
                 if pending == 0:
+                    yes, no = right[question + 1 : index], right[index + 1 :]
+                    guard = _allowlist_test(right[:question], self.spec)
+                    if guard is not None:
+                        name, negated = guard
+                        chosen = no if negated else yes
+                        if _sole_chain(chosen, self.spec) == name:
+                            return yes if negated else no
+                    if consts is None:
+                        return right
                     decided = folding.truth(folding.fold(right[:question], consts))
                     if decided is None:
                         return right
-                    return right[question + 1 : index] if decided else right[index + 1 :]
+                    return yes if decided else no
         return right
 
     # ------------------------------------------------------------------
@@ -599,6 +671,12 @@ class _Analysis:
                 consts.pop(target, None)
         if target is not None and self.context is not None:
             self._model_collection(target, right, statement[0])
+        if target is not None and "." not in target and self.spec.language in _JS_LANGUAGES:
+            wrapped = _alias_target(right, self.spec)
+            if wrapped is not None:
+                self.aliases[target] = wrapped
+            else:
+                self.aliases.pop(target, None)
         mark = self._taint_of(right)
         extra_targets = _destructured_targets(left, self.spec)
         if extra_targets:
@@ -672,6 +750,7 @@ class _Analysis:
             # dùng làm điểm cuối của vùng báo lỗi để SARIF tô đúng lời gọi.
             chain_end = statement[next_index - 1] if next_index > index else statement[index]
             if opens_call:
+                chain = self._unalias(chain)
                 arguments, _ = _read_arguments(statement, next_index)
                 if not (
                     self.spec.language in _JS_LANGUAGES
@@ -697,6 +776,15 @@ class _Analysis:
                     chain, statement[index], [list(statement[next_index:])], chain_end
                 )
             index = max(next_index, index + 1)
+
+    def _unalias(self, chain: str) -> str:
+        head, dot, rest = chain.partition(".")
+        wrapped = self.aliases.get(head)
+        if wrapped is None and self.context is not None and self.context.facts is not None:
+            wrapped = self.context.facts.aliases.get(head)
+        if wrapped is None:
+            return chain
+        return wrapped + dot + rest
 
     def _check_call(
         self,
@@ -749,6 +837,9 @@ class _Analysis:
             position = min(sink.argument_index, max(0, len(arguments) - 1))
             selected = arguments[position] if arguments else ()
         if not selected:
+            return
+        if sink.category == Category.MARKUP and self.spec.language in _JS_LANGUAGES and _is_container_literal(selected):
+            # `res.send({ name })` gửi JSON, `document.write([])` in "[object ...]".
             return
         mark = self._taint_of(selected)
         self._report_expression(
@@ -938,7 +1029,7 @@ class _Analysis:
                     self.sanitized.discard(head)
                     break
         for callee in context.resolve(chain, anchor, len(arguments)):
-            self._apply_callee(callee, anchor, arguments)
+            self._apply_callee(callee, anchor, arguments, chain)
 
     def _is_process_receiver(self, chain: str) -> bool:
         """`re.exec(s)` là RegExp, không phải child_process.
@@ -1008,20 +1099,32 @@ class _Analysis:
         for callee in callees:
             self._apply_callee(callee, statement[index], arguments)
 
-    def _apply_callee(self, callee: Callee, anchor: Token, arguments: Sequence[Sequence[Token]]) -> None:
+    def _apply_callee(
+        self, callee: Callee, anchor: Token, arguments: Sequence[Sequence[Token]], callee_chain: str = ""
+    ) -> None:
         context = self.context
         if context is None:
             return
         function = callee.function
         for hit in callee.summary.sinks:
-            argument = _argument_for(function, hit.param, arguments)
-            if not argument:
-                continue
-            mark = self._taint_of(argument)
+            if hit.param == RECEIVER:
+                # `report.generate()` với `report = new Report(req.query.x)`:
+                # trường của đối tượng bẩn đi vào sink bên trong phương thức.
+                argument = None
+                mark = self._receiver_mark(callee_chain, anchor) if callee_chain else None
+                if mark is None:
+                    continue
+            else:
+                argument = _argument_for(function, hit.param, arguments)
+                if not argument:
+                    continue
+                mark = self._taint_of(argument)
             if mark is None or not mark.active_for(hit.category):
                 continue
             via = (function.display,) + hit.via
-            proven = not hit.requires_sql or self._looks_like_sql_argument(argument, anchor)
+            proven = not hit.requires_sql or (
+                argument is not None and self._looks_like_sql_argument(argument, anchor)
+            )
             if context.summarizing:
                 for parameter in mark.params:
                     context.sink_hits.add(
@@ -1129,14 +1232,22 @@ class _Analysis:
                     ),
                 )
             for parameter, cleared in summary.returns.items():
-                argument = _argument_for(callee.function, parameter, arguments)
-                if not argument:
-                    continue
-                mark = self._taint_of(argument)
+                if parameter == RECEIVER:
+                    mark = self._receiver_mark(chain, token)
+                else:
+                    argument = _argument_for(callee.function, parameter, arguments)
+                    mark = self._taint_of(argument) if argument else None
                 if mark is None:
                     continue
                 result = _merge_marks(result, replace(mark, cleared=mark.cleared | cleared))
         return result, after
+
+    def _receiver_mark(self, chain: str, token: Token) -> Optional[TaintMark]:
+        """Vết nhiễm của đối tượng nhận lời gọi `a.b.method(...)`, tức `a.b`."""
+        head = chain.rpartition(".")[0]
+        if not head:
+            return None
+        return self._mark_for(head, token.line)
 
     def _closure_result(self, function: FunctionDef, arguments: Sequence[Sequence[Token]]) -> Optional[TaintMark]:
         context = self.context
@@ -1706,9 +1817,12 @@ def _argument_for(
     return list(arguments[parameter])
 
 
-def _merge_marks(current: Optional[TaintMark], new: TaintMark) -> TaintMark:
+def _merge_marks(current: Optional[TaintMark], new: Optional[TaintMark]) -> Optional[TaintMark]:
+    # Một vế sạch ( None ) không làm vế kia sạch theo.
     if current is None:
         return new
+    if new is None:
+        return current
     return replace(
         current,
         cleared=current.cleared & new.cleared,
@@ -2001,6 +2115,141 @@ class _Collection:
     def __init__(self, kind: str) -> None:
         self.kind = kind
         self.items: "Dict[str, Optional[TaintMark]] | List[Optional[TaintMark]]" = {} if kind == "map" else []
+
+
+_ALIAS_WRAPPERS = frozenset({"promisify", "util.promisify", "Bluebird.promisify", "Promise.promisify", "pify"})
+
+
+def _alias_target(right: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
+    """`util.promisify(exec)` -> "exec": hàm bọc giữ nguyên hành vi hàm gốc."""
+    tokens = [token for token in right if token.kind != NEWLINE]
+    chain, after = _read_chain(tokens, 0, spec)
+    if chain not in _ALIAS_WRAPPERS or after >= len(tokens) or tokens[after].text != "(":
+        return None
+    wrapped, wrapped_end = _read_chain(tokens, after + 1, spec)
+    if wrapped is None or wrapped_end != len(tokens) - 1 or tokens[wrapped_end].text != ")":
+        return None
+    return wrapped
+
+
+_EXIT_KEYWORDS = ("throw", "return", "continue", "break", "abort", "panic")
+_MEMBERSHIP_METHODS = frozenset({"contains", "includes", "has", "containsKey", "Contains", "ContainsKey"})
+_LITERAL_COLLECTIONS = frozenset(
+    {"Set.of", "List.of", "Arrays.asList", "ImmutableSet.of", "ImmutableList.of", "EnumSet.of", "Collections.singleton"}
+)
+_ALLOWLIST_WORDS = ("allow", "permit", "valid", "whitelist", "safe", "known", "supported", "accepted")
+
+
+def _allowlist_test(condition: Sequence[Token], spec: LanguageSpec) -> Optional[Tuple[str, bool]]:
+    """(biến, có phủ định không) nếu điều kiện là phép kiểm danh sách cho phép.
+
+        !ALLOWED.contains(x)        -> ("x", True)
+        ['asc', 'desc'].includes(d) -> ("d", False)
+        SORTS.indexOf(s) === -1     -> ("s", True)
+        slices.Contains(allowed, s) -> ("s", False)
+    """
+    tokens = [token for token in condition if token.kind != NEWLINE]
+    while len(tokens) >= 2 and tokens[0].text == "(" and _group_end(tokens, 0) == len(tokens):
+        tokens = tokens[1:-1]
+    negated = False
+    if tokens and tokens[0].kind == OP and tokens[0].text == "!":
+        negated = True
+        tokens = tokens[1:]
+        while len(tokens) >= 2 and tokens[0].text == "(" and _group_end(tokens, 0) == len(tokens):
+            tokens = tokens[1:-1]
+    if len(tokens) >= 3 and tokens[-1].kind == NUMBER and tokens[-2].kind == OP:
+        # `xs.indexOf(v) === -1` / `< 0`
+        comparison = tokens[-2].text
+        if comparison == "-" and len(tokens) >= 4 and tokens[-1].text == "1" and tokens[-3].text in ("===", "=="):
+            tokens, negated = tokens[:-3], not negated
+        elif comparison == "<" and tokens[-1].text == "0":
+            tokens, negated = tokens[:-2], not negated
+        else:
+            return None
+        method = "indexOf"
+    else:
+        method = ""
+    if len(tokens) < 4 or tokens[-1].text != ")":
+        return None
+    opener = _matching_open(tokens, len(tokens) - 1)
+    if opener is None or opener < 2:
+        return None
+    arguments = _split_top_level(tokens[opener + 1 : -1])
+    called = tokens[opener - 1]
+    if called.kind != IDENT:
+        return None
+    if method == "indexOf" and called.text != "indexOf":
+        return None
+    if method != "indexOf" and called.text not in _MEMBERSHIP_METHODS:
+        # Hàm tự do: `slices.Contains(ALLOWED, v)`.
+        chain, _ = _read_chain(tokens, 0, spec)
+        if chain not in ("slices.Contains", "lo.Contains", "_.includes", "contains") or len(arguments) != 2:
+            return None
+        if not _allowlist_receiver(arguments[0], spec):
+            return None
+        name = _sole_chain(arguments[1], spec)
+        return (name, negated) if name else None
+    if len(arguments) != 1 or tokens[opener - 2].text not in spec.chain_separators:
+        return None
+    if not _allowlist_receiver(tokens[: opener - 2], spec):
+        return None
+    name = _sole_chain(arguments[0], spec)
+    return (name, negated) if name else None
+
+
+def _allowlist_receiver(tokens: Sequence[Token], spec: LanguageSpec) -> bool:
+    tokens = [token for token in tokens if token.kind != NEWLINE]
+    if not tokens:
+        return False
+    if tokens[0].kind == OP and tokens[0].text == "[" and tokens[-1].text == "]":
+        inner = tokens[1:-1]
+        return bool(inner) and all(t.kind in (STRING, NUMBER) or t.text == "," for t in inner)
+    if tokens[0].kind == IDENT and tokens[0].text == "new":
+        tokens = tokens[1:]
+    chain, after = _read_chain(tokens, 0, spec)
+    if chain is None:
+        return False
+    if after == len(tokens):
+        last = chain.rsplit(".", 1)[-1]
+        if last.isupper() and any(c.isalpha() for c in last):
+            return True
+        lowered = last.lower()
+        return any(word in lowered for word in _ALLOWLIST_WORDS)
+    if chain in _LITERAL_COLLECTIONS or chain == "Set":
+        rest = tokens[after:]
+        return all(t.kind in (STRING, NUMBER) or (t.kind == OP and t.text in "(),[]") for t in rest)
+    return False
+
+
+def _sole_chain(tokens: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
+    tokens = [token for token in tokens if token.kind != NEWLINE]
+    chain, after = _read_chain(tokens, 0, spec)
+    if chain is None or after != len(tokens):
+        return None
+    return chain
+
+
+def _matching_open(tokens: Sequence[Token], closing: int) -> Optional[int]:
+    depth = 0
+    for index in range(closing, -1, -1):
+        token = tokens[index]
+        if token.kind != OP or token.in_string:
+            continue
+        if token.text in ")]}":
+            depth += 1
+        elif token.text in "([{":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _is_container_literal(argument: Sequence[Token]) -> bool:
+    for token in argument:
+        if token.kind == NEWLINE:
+            continue
+        return token.kind == OP and not token.in_string and token.text in ("{", "[")
+    return False
 
 
 def _sole_int(argument: Sequence[Token]) -> Optional[int]:
@@ -2405,15 +2654,69 @@ def _following_interpolations(statement: Sequence[Token], index: int) -> List[To
     return collected
 
 
-def _next_declared_name(tokens: Sequence[Token], index: int) -> Optional[str]:
+def _annotated_parameter(tokens: Sequence[Token], index: int) -> Tuple[Optional[str], Optional[str]]:
+    """(tên, kiểu) của tham số đứng sau chú thích: `@RequestParam(defaultValue = "x") String sort`."""
     cursor = index
-    limit = min(len(tokens), index + 12)
-    last: Optional[str] = None
+    limit = len(tokens)
+    if cursor < limit and tokens[cursor].kind == OP and tokens[cursor].text == "(":
+        after = _group_end(tokens, cursor)
+        if after is None:
+            return None, None
+        cursor = after
+    limit = min(limit, cursor + 12)
+    names: List[str] = []
     while cursor < limit:
         token = tokens[cursor]
         if token.kind == IDENT:
-            last = token.text
+            names.append(token.text)
         elif token.kind == OP and token.text in (",", ")"):
             break
+        elif token.kind == OP and token.text == "[" and names:
+            # `byte[] blob` là mảng, không phải một số.
+            names[-1] += "[]"
         cursor += 1
-    return last
+    if not names:
+        return None, None
+    return names[-1], (names[-2] if len(names) >= 2 else None)
+
+
+# Kiểu chỉ chở được số / thời điểm / UUID. Chỉ tin ở ngôn ngữ mà kiểu có thật lúc
+# chạy: `id: number` của TypeScript vẫn là chuỗi nếu không có pipe chuyển đổi.
+_SCALAR_TYPES = frozenset(
+    {
+        "int", "long", "short", "byte", "double", "float", "boolean",
+        "Integer", "Long", "Short", "Byte", "Double", "Float", "Boolean",
+        "BigDecimal", "BigInteger", "UUID", "LocalDate", "LocalDateTime", "LocalTime",
+        "Instant", "OffsetDateTime", "ZonedDateTime", "Duration",
+        "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64",
+        "float32", "float64", "bool", "uintptr", "time.Time", "time.Duration", "uuid.UUID",
+    }
+)
+_TYPED_LANGUAGES = frozenset({"java", "kotlin", "go", "csharp", "scala"})
+
+
+def _scalar_type(type_name: str, language: str) -> bool:
+    if not type_name or language not in _TYPED_LANGUAGES:
+        return False
+    return type_name.lstrip("*").replace("java.util.", "").replace("java.math.", "") in _SCALAR_TYPES
+
+
+def _seed_receiver(analysis: "_Analysis", function: FunctionDef, project: "XProject", unit: AnalysisUnit) -> None:
+    """Phương thức đọc được trường của đối tượng nhận: gắn vết RECEIVER cho chúng."""
+    if not function.owner:
+        return
+    mark = TaintMark("đối tượng %s" % function.owner, function.line, Confidence.HIGH, params=frozenset({RECEIVER}))
+    names = ["this"]
+    if function.receiver:
+        names.append(function.receiver)
+    facts = project.facts.get(unit.relative_path)
+    info = facts.classes.get(function.owner) if facts is not None else None
+    if info is not None and unit.language in _TYPED_LANGUAGES:
+        # Java: `return fileName;` đọc trường không cần `this.`. Hằng ( tên viết
+        # hoa, static final ) không thuộc về đối tượng.
+        names.extend(
+            name for name in info.fields if not name.isupper() and name not in info.constants
+        )
+    for name in names:
+        if name and name not in function.params:
+            analysis.tainted.setdefault(name, mark)

@@ -298,7 +298,8 @@ class _JavaExtractor:
         kotlin_fun = self.kotlin and s.is_ident(previous, "fun")
         if previous >= 0 and not is_ctor and not kotlin_fun:
             token = self.tokens[previous]
-            if not (token.kind == IDENT or (token.kind == OP and token.text in (">", "]", "?"))):
+            # `List<Map<String, Object>> find(...)`: lexer gộp `>>` thành một token.
+            if not (token.kind == IDENT or (token.kind == OP and token.text in (">", ">>", ">>>", "]", "?"))):
                 return -1
             if token.kind == IDENT and token.text in ("new", "return", "throw", "else"):
                 return -1
@@ -351,12 +352,12 @@ class _JavaExtractor:
         # Kiểu trả về Java: chuỗi truy cập ngay trước tên.
         if not self.kotlin and not is_ctor:
             type_end = previous
-            if s.is_op(type_end, ">"):
+            if s.is_op(type_end, ">", ">>", ">>>"):
                 depth = 0
                 scan = type_end
                 while scan > member_start:
-                    if s.is_op(scan, ">"):
-                        depth += 1
+                    if s.is_op(scan, ">", ">>", ">>>"):
+                        depth += len(s.text(scan))
                     elif s.is_op(scan, "<"):
                         depth -= 1
                         if depth == 0:
@@ -422,6 +423,9 @@ class _JavaExtractor:
                 param_name = s.text(idents[-1])
                 type_chain, _ = s.chain_at(idents[0]) if len(idents) > 1 else ("", 0)
                 type_name = (type_chain or "") if len(idents) > 1 else ""
+                if type_name and any(s.is_op(i, "[") for i in range(idents[0], idents[-1])):
+                    # `byte[] blob` là mảng, không phải một số.
+                    type_name += "[]"
             simple_type = type_name.rsplit(".", 1)[-1]
             if listener and label is None:
                 label = "payload hàng đợi tin nhắn"

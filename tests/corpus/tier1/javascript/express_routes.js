@@ -47,7 +47,7 @@ app.get('/go-safe', (req, res) => {
 
 app.get('/proxy', async (req, res) => {
   const upstream = await fetch(req.query.url); // fsb-expect: FSB-SSRF-001
-  res.send(await upstream.text());
+  res.send(await upstream.text()); // fsb-expect: FSB-XSS-001
 });
 
 app.get('/hello', (req, res) => {

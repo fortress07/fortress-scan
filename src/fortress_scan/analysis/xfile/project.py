@@ -28,6 +28,7 @@ SUPPORTED = frozenset({JAVASCRIPT, TYPESCRIPT, JAVA, GO})
 
 _JS_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte")
 _MAX_DEPTH = 8
+_MAX_FIELD_TYPES = 8
 MAX_FUNCTIONS = 60_000
 
 # Chuỗi nguồn suy ra từ đối tượng request do framework truyền vào, theo kiểu.
@@ -195,6 +196,8 @@ class XProject:
         # Phép phân giải kiểu đang chạy dở: `x := x.Next()` không được tự gọi mình mãi.
         self._active: Set[Tuple[str, str, str, str]] = set()
         self._token_indexes: Dict[str, TokenIndex] = {}
+        # JS: lớp -> những nơi `new` nó, dựng một lần khi cần.
+        self._constructed: Optional[Dict[Tuple[str, str], List[Tuple[FileFacts, int, Tuple[str, ...]]]]] = None
 
     # ------------------------------------------------------------ building
     def add_file(self, facts: FileFacts) -> None:
@@ -313,14 +316,6 @@ class XProject:
                 for base in info.bases:
                     simple = base.rsplit(".", 1)[-1]
                     self._implementers.setdefault((_family(facts.language), simple), []).append(info)
-        # Go: interface được thỏa mãn ngầm -- lớp nào có phương thức trùng tên
-        # đều có thể đứng sau interface.
-        for facts in self.facts.values():
-            for path_route, anchor in facts.route_handlers:
-                for target in self.resolve(facts.path, path_route, None, None):
-                    function = target.function
-                    if function.params and function.params[0] and function.language_ok:
-                        pass
         self._wire_routes()
         self._mapper_summaries()
 
@@ -457,15 +452,16 @@ class XProject:
     def reset_source_cache(self) -> None:
         self._extra_sources_cache.clear()
 
-    def seeded_parameters(self, path: str) -> Dict[str, Tuple[str, int]]:
+    def seeded_parameters(self, path: str) -> Dict[str, Tuple[str, int, str]]:
         facts = self.facts.get(path)
-        seeds: Dict[str, Tuple[str, int]] = {}
+        seeds: Dict[str, Tuple[str, int, str]] = {}
         if facts is None:
             return seeds
         for function in facts.functions:
-            for name, label in zip(function.params, function.param_sources):
+            for position, (name, label) in enumerate(zip(function.params, function.param_sources)):
                 if name and label:
-                    seeds.setdefault(name, (label, function.line))
+                    type_name = function.param_types[position] if position < len(function.param_types) else ""
+                    seeds.setdefault(name, (label, function.line, type_name))
         return seeds
 
     # ------------------------------------------------------------ resolve
@@ -685,20 +681,32 @@ class XProject:
             self._active.discard(key)
 
     def _js_return_type_inner(self, facts: FileFacts, chain: str, function: Optional[FunctionDef]) -> str:
+        # Kiểu trả về được viết theo tên ở tệp của hàm được gọi, nên mang theo
+        # tệp đó ( "@tệp|Kiểu" ) để nơi gọi ở tệp khác không tra nhầm chỗ.
         for target in self._js_call(facts, chain, function):
             if target.return_type:
-                return target.return_type
-            # Hàm factory `return new Service()`.
+                return _qualify(target.path, target.return_type)
+            # Hàm factory `return new Service()` / `return { users: ... }`.
             target_facts = self.facts.get(target.path)
-            if target_facts is not None:
-                created = target_facts.envs.get(target.key, {}).get("<return>")
+            if target_facts is None:
+                continue
+            created = target_facts.envs.get(target.key, {}).get("<return>")
+            if not created:
+                continue
+            if created.startswith("()"):
+                created = self._js_return_type(target_facts, created[2:], target)
                 if created:
                     return created
+                continue
+            return _qualify(target.path, created)
         return ""
 
     def _js_class(self, path: str, type_name: str, depth: int) -> List[Tuple[str, ClassDef]]:
         if depth > _MAX_DEPTH or not type_name:
             return []
+        if type_name.startswith("@"):
+            owner_path, _, type_name = type_name[1:].partition("|")
+            return self._js_class(owner_path, type_name, depth + 1)
         facts = self.facts.get(path)
         if facts is None:
             return []
@@ -743,18 +751,90 @@ class XProject:
                 if not implementer.methods.get(parts[0]) and implementer_path:
                     found.extend(self._js_methods(implementer_path, implementer, parts[0], depth + 1))
             return found
-        field_type = info.fields.get(parts[0], "")
-        if not field_type:
+        results: List[FunctionDef] = []
+        for field_type in self._field_types(path, info, parts[0], depth):
+            for class_path, field_info in self._js_class(path, field_type, depth + 1):
+                results.extend(self._js_member(class_path, field_info, parts[1:], depth + 1))
+        return results
+
+    def _field_types(self, path: str, info: ClassDef, name: str, depth: int) -> List[str]:
+        """Những kiểu mà trường `name` của lớp có thể mang."""
+        field_type = info.fields.get(name, "")
+        if not field_type or depth > _MAX_DEPTH:
             return []
         if field_type.startswith("()"):
             facts = self.facts.get(path)
             if facts is None:
                 return []
-            field_type = self._js_return_type(facts, field_type[2:], None)
-        results: List[FunctionDef] = []
-        for class_path, field_info in self._js_class(path, field_type, depth + 1):
-            results.extend(self._js_member(class_path, field_info, parts[1:], depth + 1))
-        return results
+            found = self._js_return_type(facts, field_type[2:], None)
+            return [found] if found else []
+        if field_type.startswith("(param)"):
+            return self._constructor_argument_types(path, info, int(field_type[len("(param)") :]), depth + 1)
+        return [field_type]
+
+    def _constructor_argument_types(self, path: str, info: ClassDef, position: int, depth: int) -> List[str]:
+        """Kiểu của đối số thứ `position` ở mọi nơi `new` lớp này trong dự án.
+
+            class UserService { constructor(repo) { this.repo = repo; } }
+            const service = new UserService(new UserRepository(pool));
+        """
+        key = ("js", path, info.name, str(position))
+        if key in self._active or depth > _MAX_DEPTH:
+            return []
+        self._active.add(key)
+        try:
+            found: List[str] = []
+            for site, body_start, arguments in self._construction_sites().get((path, info.name), []):
+                if position >= len(arguments):
+                    continue
+                argument = arguments[position]
+                function = self._function_by_body(site, body_start)
+                if argument.startswith("new:"):
+                    found.append(_qualify(site.path, argument[4:]))
+                    continue
+                if not argument.startswith("var:"):
+                    continue
+                name = argument[4:]
+                if name.startswith("this.") and function is not None and function.owner in site.classes:
+                    owner = site.classes[function.owner]
+                    found.extend(
+                        _qualify(site.path, item)
+                        for item in self._field_types(site.path, owner, name[len("this.") :], depth + 1)
+                    )
+                    continue
+                if "." in name:
+                    continue
+                type_name = self._js_var_type(site, name, function)
+                if type_name:
+                    found.append(_qualify(site.path, type_name))
+            unique: List[str] = []
+            for item in found:
+                if item not in unique:
+                    unique.append(item)
+            return unique[:_MAX_FIELD_TYPES]
+        finally:
+            self._active.discard(key)
+
+    def _construction_sites(self) -> Dict[Tuple[str, str], List[Tuple[FileFacts, int, Tuple[str, ...]]]]:
+        if self._constructed is None:
+            self._constructed = {}
+            for facts in self.facts.values():
+                if facts.language not in JS_FAMILY:
+                    continue
+                for chain, body_start, arguments in facts.constructions:
+                    for class_path, info in self._js_class(facts.path, chain, 0):
+                        self._constructed.setdefault((class_path, info.name), []).append(
+                            (facts, body_start, arguments)
+                        )
+        return self._constructed
+
+    def _function_by_body(self, facts: FileFacts, body_start: int) -> Optional[FunctionDef]:
+        if body_start < 0:
+            return None
+        for function in facts.functions:
+            if function.body_start == body_start:
+                return function
+        return None
 
     def _js_methods(self, path: str, info: ClassDef, name: str, depth: int) -> List[FunctionDef]:
         if depth > _MAX_DEPTH:
@@ -822,6 +902,13 @@ class XProject:
                 for class_path, info in self._js_class(target_path, target_facts.module_types[local], depth + 1):
                     results.extend(self._js_member(class_path, info, rest, depth + 1))
                 continue
+            if local in target_facts.module_deferred and rest:
+                # `export const services = createServices(pool)`.
+                created = self._js_return_type(target_facts, target_facts.module_deferred[local], None)
+                if created:
+                    for class_path, info in self._js_class(target_path, created, depth + 1):
+                        results.extend(self._js_member(class_path, info, rest, depth + 1))
+                    continue
             results.extend(self._js_name(target_path, local.split(".") + rest, depth + 1))
         return results
 
@@ -1155,7 +1242,7 @@ class XProject:
             found = facts.envs.get(function.key, {}).get(name, "")
         else:
             found = ""
-        found = found.split("<", 1)[0].lstrip("*&[]")
+        found = found.rsplit("|", 1)[-1].split("<", 1)[0].lstrip("*&[]")
         return found.rsplit(".", 1)[-1]
 
     # ---------------------------------------------------------- constants
@@ -1250,6 +1337,13 @@ class XProject:
             if found:
                 return found
         return []
+
+
+def _qualify(path: str, type_name: str) -> str:
+    """Kiểu JS kèm tệp nơi tên kiểu có nghĩa: "@src/a.js|Repo"."""
+    if not type_name or type_name.startswith("@"):
+        return type_name
+    return "@%s|%s" % (path, type_name)
 
 
 def _family(language: str) -> str:

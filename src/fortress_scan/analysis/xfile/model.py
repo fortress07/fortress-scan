@@ -7,8 +7,10 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from ...core.model import Category
 
-# Số thứ tự tham số giả cho `this`/receiver không cần: phương thức nhận đối số
-# đúng như lời gọi viết, receiver nằm ở chuỗi truy cập chứ không ở danh sách.
+# Số thứ tự tham số giả cho đối tượng nhận lời gọi ( `this`, trường của lớp,
+# receiver của Go ): `dto.getName()` trả về trường của `dto`, nên `dto` bẩn
+# thì kết quả bẩn. Tham số thật đánh số từ 0, nên -1 không đụng hàng.
+RECEIVER = -1
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,8 @@ class FunctionDef:
     abstract: bool = False
     # Chú thích / decorator đặt trên chính hàm, không kèm '@'.
     annotations: Tuple[str, ...] = ()
+    # Go: tên biến nhận của phương thức ( `func (s *Store) Find()` -> "s" ).
+    receiver: str = ""
 
     @property
     def qualname(self) -> str:
@@ -118,6 +122,12 @@ class FileFacts:
     dispatch_tables: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
     # Engine template bị tắt escape cho cả ứng dụng: ("autoescape" | "noEscape", dòng).
     template_settings: List[Tuple[str, int]] = field(default_factory=list)
+    # Nơi tạo đối tượng `new X(a, new Y())`: (lớp, đầu thân hàm bao quanh hoặc -1,
+    # mô tả từng đối số: "new:Y", "var:a" hoặc "" ). Dùng để biết kiểu của
+    # tham số constructor không khai báo kiểu ( `this.repo = repo` ).
+    constructions: List[Tuple[str, int, Tuple[str, ...]]] = field(default_factory=list)
+    # Tên chỉ là vỏ bọc của hàm khác: `const run = util.promisify(exec)`.
+    aliases: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
