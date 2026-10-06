@@ -5,11 +5,14 @@ from typing import Dict, FrozenSet, Optional, Tuple
 
 from ...core.model import Category, Confidence
 from ...languages import (
+    C,
+    CPP,
     CSHARP,
     GO,
     JAVA,
     JAVASCRIPT,
     LUA,
+    OBJC,
     PERL,
     PHP,
     POWERSHELL,
@@ -61,6 +64,30 @@ class LanguageSpec:
     # được nó thì mọi script viết đúng đều bị kêu, mà bảng sanitizers lại chỉ
     # nhận dạng `ten(...)`.
     cast_delimiters: Tuple[str, str] = ()
+    # C: hàm ĐỔ dữ liệu ngoài vào đối số ( fgets(buf, ...), recv(s, buf, ...) )
+    # thay vì trả về: tên -> ( vị trí đối số, nhãn nguồn ). Vị trí âm nghĩa là
+    # mọi đối số từ |vị trí| trở đi ( scanf("%s %d", a, &b) ).
+    # Phần tử thứ ba là vị trí đối số luồng phải là stdin ( fgets(buf, n, stdin) );
+    # -1 nghĩa là không cần điều kiện đó ( recv luôn là dữ liệu mạng ).
+    fill_sources: Dict[str, Tuple[int, str, int]] = field(default_factory=dict)
+    # Nguồn chỉ bật khi người dùng chọn --include-low-signal-sources, giống
+    # sys.argv / os.getenv bên Python: argv của một công cụ dòng lệnh là chính
+    # người chạy nó, fopen(argv[1]) là đúng chức năng chứ không phải lỗ hổng.
+    low_signal_sources: Dict[str, str] = field(default_factory=dict)
+    # getenv("QUERY_STRING") trong chương trình CGI là request HTTP thật:
+    # tên hàm -> ( các giá trị literal của đối số đầu, tiền tố, nhãn ).
+    argument_sources: Dict[str, Tuple[FrozenSet[str], Tuple[str, ...], str]] = field(default_factory=dict)
+    # std::cin >> x
+    stream_sources: Dict[str, str] = field(default_factory=dict)
+    # `std::string q = "PRAGMA ..."` rồi sqlite3_exec(db, q.c_str()): biến chỉ
+    # mang literal thì không phải "giá trị không phải hằng".
+    literal_assignments: bool = False
+    value_accessors: FrozenSet[str] = frozenset()
+    # sprintf(cmd, "ping %s", host): vết nhiễm của các đối số từ vị trí thứ hai
+    # chảy vào đối số đích. ( đích, nguồn đầu tiên, ghi đè hay nối thêm ).
+    propagators: Dict[str, Tuple[int, int, bool]] = field(default_factory=dict)
+    # Bỏ các dòng #define/#include trước khi đọc, giữ một nhánh #if.
+    strip_preprocessor: bool = False
 
 
 # Ép về số hoặc UUID thì không còn ký tự đặc biệt nào sống sót, ở bất kỳ nhóm
@@ -767,6 +794,131 @@ _CSHARP_SINKS: Tuple[GenericSink, ...] = (
     ),
 )
 
+NETWORK_DATA = "dữ liệu nhận qua mạng"
+FILE_OR_STREAM = "dữ liệu đọc từ tệp hoặc luồng"
+
+_NATIVE_LEXER = LexerProfile(
+    line_comments=("//",),
+    block_comments=(("/*", "*/"),),
+    plain_quotes=("'", '"'),
+    interpolating_quotes=(),
+    interpolation_markers=(),
+    identifier_extra="_",
+    multichar_operators=("->", "::", "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "+=", "-="),
+)
+
+_NATIVE_SINKS: Tuple[GenericSink, ...] = (
+    GenericSink(
+        ("system", "popen", "_popen", "_wsystem", "_wpopen", "std.system"),
+        Category.COMMAND,
+        "FSB-CMD-001",
+        "FSB-CMD-003",
+        SINK_SHELL_COMMAND,
+        confidence=Confidence.HIGH,
+    ),
+    GenericSink(
+        ("execl", "execlp", "execle", "execv", "execvp", "execvpe", "execve", "_execl", "_execvp"),
+        Category.COMMAND,
+        "FSB-CMD-002",
+        None,
+        SINK_PROCESS_SPAWN,
+        program_position=True,
+        confidence=Confidence.HIGH,
+    ),
+    GenericSink(
+        ("sqlite3_exec", "sqlite3_prepare", "sqlite3_prepare_v2", "sqlite3_prepare_v3", "mysql_query", "mysql_real_query", "PQexec", "PQexecParams", "PQsendQuery"),
+        Category.SQL,
+        "FSB-SQL-001",
+        "FSB-SQL-002",
+        SINK_SQL_QUERY,
+        argument_index=1,
+        require_sql=True,
+    ),
+    GenericSink(
+        ("dlopen", "LoadLibraryA", "LoadLibraryW", "LoadLibrary", "LoadLibraryExA", "LoadLibraryExW"),
+        Category.DYNAMIC_IMPORT,
+        "FSB-IMPORT-001",
+        None,
+        "việc nạp thư viện động",
+    ),
+    GenericSink(
+        ("fopen", "freopen", "open", "openat", "creat", "unlink", "remove", "rename", "chmod", "std.ifstream", "std.ofstream", "std.fstream", "ifstream", "ofstream"),
+        Category.PATH,
+        "FSB-PATH-001",
+        None,
+        SINK_FILE_PATH,
+    ),
+)
+
+_NATIVE_SOURCES: Dict[str, str] = {}
+
+_NATIVE_LOW_SIGNAL: Dict[str, str] = {
+    "argv": COMMAND_LINE_ARG,
+    "getenv": ENVIRONMENT_VARIABLE,
+    "secure_getenv": ENVIRONMENT_VARIABLE,
+    "_wgetenv": ENVIRONMENT_VARIABLE,
+    "std.getenv": ENVIRONMENT_VARIABLE,
+}
+
+CGI_REQUEST = "biến CGI mang dữ liệu request HTTP"
+
+_CGI_VARIABLES: FrozenSet[str] = frozenset(
+    {"QUERY_STRING", "REQUEST_URI", "PATH_INFO", "PATH_TRANSLATED", "CONTENT_TYPE", "SCRIPT_NAME", "REMOTE_USER", "DOCUMENT_URI"}
+)
+
+_NATIVE_ARGUMENT_SOURCES: Dict[str, Tuple[FrozenSet[str], Tuple[str, ...], str]] = {
+    name: (_CGI_VARIABLES, ("HTTP_",), CGI_REQUEST) for name in ("getenv", "secure_getenv", "std.getenv")
+}
+
+# Chỉ đọc từ stdin hoặc mạng mới là dữ liệu ngoài; đọc tệp cấu hình của chính
+# chương trình thì không ( giống bên Python: sys.stdin là nguồn, open().read() thì không ).
+_NATIVE_FILLS: Dict[str, Tuple[int, str, int]] = {
+    "fgets": (0, STANDARD_INPUT, 2),
+    "fgetws": (0, STANDARD_INPUT, 2),
+    "gets": (0, STANDARD_INPUT, -1),
+    "getline": (0, STANDARD_INPUT, 2),
+    "getdelim": (0, STANDARD_INPUT, 3),
+    "fread": (0, STANDARD_INPUT, 3),
+    "read": (1, STANDARD_INPUT, 0),
+    "recv": (1, NETWORK_DATA, -1),
+    "recvfrom": (1, NETWORK_DATA, -1),
+    "recvmsg": (1, NETWORK_DATA, -1),
+    "SSL_read": (1, NETWORK_DATA, -1),
+    "BIO_read": (1, NETWORK_DATA, -1),
+    "scanf": (-1, STANDARD_INPUT, -1),
+    "std.getline": (1, STANDARD_INPUT, 0),
+}
+
+_NATIVE_PROPAGATORS: Dict[str, Tuple[int, int, bool]] = {
+    "sprintf": (0, 1, True),
+    "snprintf": (0, 2, True),
+    "vsnprintf": (0, 2, True),
+    "strcpy": (0, 1, True),
+    "strncpy": (0, 1, True),
+    "strlcpy": (0, 1, True),
+    "memcpy": (0, 1, True),
+    "strcat": (0, 1, False),
+    "strncat": (0, 1, False),
+    "strlcat": (0, 1, False),
+    "asprintf": (0, 1, True),
+    "sscanf": (2, 0, True),
+}
+
+_NATIVE_SANITIZERS: Dict[str, FrozenSet[Category]] = {
+    "atoi": _ALL_CATEGORIES,
+    "atol": _ALL_CATEGORIES,
+    "atoll": _ALL_CATEGORIES,
+    "strtol": _ALL_CATEGORIES,
+    "strtoul": _ALL_CATEGORIES,
+    "strtoll": _ALL_CATEGORIES,
+    "strtoull": _ALL_CATEGORIES,
+    "strtod": _ALL_CATEGORIES,
+    "std.stoi": _ALL_CATEGORIES,
+    "std.stol": _ALL_CATEGORIES,
+    "basename": _PATH_ONLY | frozenset({Category.PATH}),
+    "realpath": frozenset({Category.PATH}),
+}
+
 _CSHARP_SOURCES: Dict[str, str] = {
     "Request.QueryString": QUERY_PARAM,
     "Request.Form": FORM_FIELD,
@@ -1437,6 +1589,57 @@ SPECS: Dict[str, LanguageSpec] = {
             "ngx.quote_sql_str": frozenset({Category.SQL}),
         },
         declaration_keywords=frozenset({"local"}),
+    ),
+    C: LanguageSpec(
+        language=C,
+        lexer=_NATIVE_LEXER,
+        sources=_NATIVE_SOURCES,
+        sinks=_NATIVE_SINKS,
+        sanitizers=_NATIVE_SANITIZERS,
+        chain_separators=(".", "->", "::"),
+        assignment_operators=("=", "+="),
+        fill_sources=_NATIVE_FILLS,
+        propagators=_NATIVE_PROPAGATORS,
+        strip_preprocessor=True,
+        low_signal_sources=_NATIVE_LOW_SIGNAL,
+        argument_sources=_NATIVE_ARGUMENT_SOURCES,
+        stream_sources={"std.cin": STANDARD_INPUT, "cin": STANDARD_INPUT},
+        literal_assignments=True,
+        value_accessors=frozenset({"c_str", "data", "str", "UTF8String"}),
+    ),
+    CPP: LanguageSpec(
+        language=CPP,
+        lexer=_NATIVE_LEXER,
+        sources=_NATIVE_SOURCES,
+        sinks=_NATIVE_SINKS,
+        sanitizers=_NATIVE_SANITIZERS,
+        chain_separators=(".", "->", "::"),
+        assignment_operators=("=", "+="),
+        fill_sources=_NATIVE_FILLS,
+        propagators=_NATIVE_PROPAGATORS,
+        strip_preprocessor=True,
+        low_signal_sources=_NATIVE_LOW_SIGNAL,
+        argument_sources=_NATIVE_ARGUMENT_SOURCES,
+        stream_sources={"std.cin": STANDARD_INPUT, "cin": STANDARD_INPUT},
+        literal_assignments=True,
+        value_accessors=frozenset({"c_str", "data", "str", "UTF8String"}),
+    ),
+    OBJC: LanguageSpec(
+        language=OBJC,
+        lexer=_NATIVE_LEXER,
+        sources=_NATIVE_SOURCES,
+        sinks=_NATIVE_SINKS,
+        sanitizers=_NATIVE_SANITIZERS,
+        chain_separators=(".", "->", "::"),
+        assignment_operators=("=", "+="),
+        fill_sources=_NATIVE_FILLS,
+        propagators=_NATIVE_PROPAGATORS,
+        strip_preprocessor=True,
+        low_signal_sources=_NATIVE_LOW_SIGNAL,
+        argument_sources=_NATIVE_ARGUMENT_SOURCES,
+        stream_sources={"std.cin": STANDARD_INPUT, "cin": STANDARD_INPUT},
+        literal_assignments=True,
+        value_accessors=frozenset({"c_str", "data", "str", "UTF8String"}),
     ),
 }
 

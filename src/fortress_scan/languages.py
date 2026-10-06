@@ -23,6 +23,11 @@ MANIFEST = "manifest"
 # vô hại, nên nó có bộ phân tích riêng.
 WORKFLOW = "workflow"
 
+# Mã native: lỗi bộ nhớ là họ lỗ hổng riêng của nhóm này.
+C = "c"
+CPP = "cpp"
+OBJC = "objective-c"
+
 _EXTENSION_MAP: Dict[str, str] = {
     ".py": PYTHON,
     ".pyw": PYTHON,
@@ -51,6 +56,20 @@ _EXTENSION_MAP: Dict[str, str] = {
     ".kts": JAVA,
     ".groovy": JAVA,
     ".scala": JAVA,
+    ".c": C,
+    ".h": C,
+    ".cc": CPP,
+    ".cpp": CPP,
+    ".cxx": CPP,
+    ".c++": CPP,
+    ".hpp": CPP,
+    ".hh": CPP,
+    ".hxx": CPP,
+    ".h++": CPP,
+    ".ipp": CPP,
+    ".inl": CPP,
+    ".tcc": CPP,
+    ".mm": OBJC,
     ".rb": RUBY,
     ".rake": RUBY,
     ".erb": RUBY,
@@ -97,6 +116,10 @@ _SHEBANG_MAP: Tuple[Tuple[str, str], ...] = (
 )
 
 _MAX_FILENAME_LENGTH = 255
+
+# `.m` là Objective-C hoặc MATLAB/Octave: chỉ biết được bằng cách nhìn nội dung.
+_OBJC_MARKERS = ("#import", "@interface", "@implementation", "@end", "NSString")
+_SNIFF_BYTES = 16384
 
 # Thư mục chứa định nghĩa workflow của các nền tảng CI dùng cú pháp GitHub
 # Actions. Gitea và Forgejo chạy lại đúng bộ chạy đó, kể cả biểu thức
@@ -165,9 +188,23 @@ def detect_language(path: Path, name: Optional[str] = None) -> Optional[str]:
     mapped = _EXTENSION_MAP.get(suffix)
     if mapped is not None:
         return mapped
+    if suffix == ".m":
+        return _detect_objective_c(path)
     if suffix == "":
         return _detect_by_shebang(path)
     return None
+
+
+def _detect_objective_c(path: Path) -> Optional[str]:
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(_SNIFF_BYTES)
+    except OSError:
+        return None
+    if b"\x00" in head:
+        return None
+    text = head.decode("utf-8", errors="replace")
+    return OBJC if any(marker in text for marker in _OBJC_MARKERS) else None
 
 
 def _detect_by_shebang(path: Path) -> Optional[str]:
@@ -205,4 +242,7 @@ def display_name(language: str) -> str:
         LUA: "Lua",
         MANIFEST: "Package manifest",
         WORKFLOW: "CI workflow",
+        C: "C",
+        CPP: "C++",
+        OBJC: "Objective-C",
     }.get(language, language)

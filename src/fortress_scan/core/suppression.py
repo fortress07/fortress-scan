@@ -30,12 +30,15 @@ from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from ..languages import (
+    C,
+    CPP,
     CSHARP,
     GO,
     JAVA,
     JAVASCRIPT,
     LUA,
     MANIFEST,
+    OBJC,
     PERL,
     PHP,
     POWERSHELL,
@@ -116,6 +119,9 @@ _LINE_COMMENTS: Dict[str, Tuple[str, ...]] = {
     PERL: ("#",),
     LUA: ("--",),
     WORKFLOW: ("#",),
+    C: ("//",),
+    CPP: ("//",),
+    OBJC: ("//",),
 }
 
 # Trong shell, `#` chỉ mở chú thích khi nó BẮT ĐẦU một từ. `curl http://x/#frag`
@@ -153,6 +159,9 @@ _BLOCK_COMMENTS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     PERL: (),
     LUA: (),
     WORKFLOW: (),
+    C: (_C_COMMENT,),
+    CPP: (_C_COMMENT,),
+    OBJC: (_C_COMMENT,),
 }
 
 # Ngôn ngữ lạ thì nhận cả hai dấu phổ biến: thà nhận dư một dấu mở chú thích còn
@@ -194,13 +203,18 @@ _SPANNING_QUOTES: Dict[str, FrozenSet[str]] = {
     #     # fortress-scan: ignore-file"
     # Với YAML, cả hai dòng là MỘT chuỗi. Không dòng nào là chú thích.
     WORKFLOW: frozenset("\"'"),
+    # Chuỗi thường của C phải đóng trong dòng ( trừ dấu \ cuối dòng, xem
+    # _LINE_CONTINUATION ). C++ có raw string R"( ... )" bắc qua nhiều dòng.
+    C: frozenset(),
+    CPP: frozenset('"'),
+    OBJC: frozenset(),
 }
 _DEFAULT_SPANNING_QUOTES: FrozenSet[str] = frozenset("`")
 
 # Ngôn ngữ mà dấu chéo ngược cuối dòng nuốt luôn ký tự xuống dòng và giữ chuỗi
 # mở sang dòng sau. Cùng một đường lách với bảng trên, chỉ tốn thêm một ký tự.
 _LINE_CONTINUATION: FrozenSet[str] = frozenset(
-    {PYTHON, JAVASCRIPT, TYPESCRIPT, SHELL}
+    {PYTHON, JAVASCRIPT, TYPESCRIPT, SHELL, C, CPP, OBJC}
 )
 
 # Heredoc là dạng chuỗi nhiều dòng thứ ba, và là cách tự nhiên nhất để viết

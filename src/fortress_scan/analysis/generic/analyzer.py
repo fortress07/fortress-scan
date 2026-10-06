@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
@@ -54,7 +56,12 @@ class GenericAnalyzer(Analyzer):
         if spec is None:
             return []
         try:
-            tokens = tokenize(unit.source, spec.lexer, budget)
+            source = unit.source
+            if spec.strip_preprocessor:
+                from ..native.cparse import strip_preprocessor
+
+                source, _macros = strip_preprocessor(source)
+            tokens = tokenize(source, spec.lexer, budget)
             return _Analysis(unit, spec, budget).run(tokens)
         except BudgetExceeded:
             return []
@@ -155,6 +162,8 @@ class _Analysis:
             return
         self._analyze_assignment(statement)
         self._analyze_calls(statement)
+        if self.spec.stream_sources:
+            self._analyze_extraction(statement)
         self._analyze_backticks(statement)
 
     def _analyze_assignment(self, statement: Sequence[Token]) -> None:
@@ -186,9 +195,14 @@ class _Analysis:
                 simple = target.rsplit(".", 1)[-1]
                 if simple != target:
                     self.tainted.setdefault(simple, mark)
+            elif self.spec.literal_assignments and statement[position].text != "=" and target in self.tainted:
+                # cmd += " -v": nối thêm vào chuỗi bẩn thì nó vẫn bẩn.
+                return
             else:
                 self.tainted.pop(target, None)
-                if self._is_neutralized(right):
+                compound = statement[position].text != "="
+                literal = self.spec.literal_assignments and _is_literal_choice(right)
+                if self._is_neutralized(right) or (literal and (not compound or target in self.sanitized)):
                     self.sanitized.add(target)
                 else:
                     self.sanitized.discard(target)
@@ -213,6 +227,8 @@ class _Analysis:
             if opens_call:
                 arguments, _ = _read_arguments(statement, next_index)
                 self._check_call(chain, statement[index], arguments, chain_end)
+                if self.spec.fill_sources or self.spec.propagators:
+                    self._apply_outputs(chain, statement[index], arguments)
             elif chain in self.spec.bare_call_names:
                 self._check_call(
                     chain, statement[index], [list(statement[next_index:])], chain_end
@@ -264,6 +280,71 @@ class _Analysis:
             anchor_end=anchor_end,
             confidence=sink.confidence,
         )
+
+    def _analyze_extraction(self, statement: Sequence[Token]) -> None:
+        """std::cin >> name >> age: mọi vế sau >> nhận dữ liệu nhập."""
+        index = 0
+        limit = len(statement)
+        while index < limit:
+            chain, next_index = _read_chain(statement, index, self.spec)
+            if chain is None:
+                index += 1
+                continue
+            label = self.spec.stream_sources.get(chain)
+            if label is not None:
+                cursor = next_index
+                while cursor + 1 < limit and statement[cursor].kind == OP and statement[cursor].text == ">>":
+                    target, cursor = _read_chain(statement, cursor + 1, self.spec)
+                    if target is None:
+                        break
+                    self.tainted[target] = TaintMark(label, statement[index].line, Confidence.HIGH)
+                    self.sanitized.discard(target)
+                return
+            index = max(next_index, index + 1)
+
+    def _apply_outputs(self, chain: str, anchor: Token, arguments: Sequence[Sequence[Token]]) -> None:
+        if chain.startswith("std.") and chain not in self.spec.fill_sources:
+            chain = chain[4:]
+        fill = self.spec.fill_sources.get(chain)
+        if fill is not None:
+            position, label, stream = fill
+            if stream >= 0 and (stream >= len(arguments) or not _is_standard_input(arguments[stream], self.spec)):
+                return
+            targets = arguments[abs(position) :] if position < 0 else arguments[position : position + 1]
+            for argument in targets:
+                target = _out_target(argument, self.spec)
+                if target is not None:
+                    self.tainted[target] = TaintMark(label, anchor.line, Confidence.HIGH)
+                    self.sanitized.discard(target)
+            return
+        propagation = self.spec.propagators.get(chain)
+        if propagation is None:
+            return
+        destination, first_source, overwrite = propagation
+        if destination >= len(arguments):
+            return
+        target = _out_target(arguments[destination], self.spec)
+        if target is None:
+            return
+        sources = [token for argument in arguments[first_source:] for token in argument]
+        if first_source == 0:
+            sources = list(arguments[0]) if arguments else []
+        mark = self._taint_of(sources)
+        if chain.endswith("printf") and first_source < len(arguments) and _numeric_format(arguments[first_source]):
+            # snprintf(q, n, "PRAGMA cache_size = %d", x): chỉ có số đi vào chuỗi.
+            self.tainted.pop(target, None)
+            self.sanitized.add(target)
+            return
+        if mark is not None:
+            self.tainted[target] = mark
+            self.sanitized.discard(target)
+        elif overwrite:
+            self.tainted.pop(target, None)
+            # snprintf(cmd, n, "sleep %d", atoi(s)): chuỗi dựng từ giá trị đã khử độc.
+            if self._is_neutralized(sources):
+                self.sanitized.add(target)
+            else:
+                self.sanitized.discard(target)
 
     def _analyze_backticks(self, statement: Sequence[Token]) -> None:
         if not self.spec.backtick_command:
@@ -418,6 +499,8 @@ class _Analysis:
                 index += 1
                 continue
             mark = self._mark_for(chain, tokens[index].line)
+            if mark is None and chain in self.spec.argument_sources:
+                mark = self._argument_source(chain, tokens, next_index)
             if mark is not None:
                 hits.append((index, mark))
             index = max(next_index, index + 1)
@@ -438,6 +521,18 @@ class _Analysis:
         if surviving is None or cleared is None or cleared == _EVERY_CATEGORY:
             return None
         return replace(surviving, cleared=cleared)
+
+    def _argument_source(self, chain: str, tokens: Sequence[Token], open_index: int) -> Optional[TaintMark]:
+        if open_index >= len(tokens) or tokens[open_index].text != "(":
+            return None
+        arguments, _ = _read_arguments(tokens, open_index)
+        literal = _sole_string(arguments[0]) if arguments else None
+        if literal is None:
+            return None
+        names, prefixes, label = self.spec.argument_sources[chain]
+        if literal in names or any(literal.startswith(prefix) for prefix in prefixes):
+            return TaintMark(label, tokens[open_index].line, Confidence.HIGH)
+        return None
 
     def _mark_for(self, chain: str, line: int) -> Optional[TaintMark]:
         """Vết nhiễm của một chuỗi truy cập, kể cả khi nó đi qua thuộc tính.
@@ -470,15 +565,19 @@ class _Analysis:
         return self._source_mark(chain, line)
 
     def _source_mark(self, chain: str, line: int) -> Optional[TaintMark]:
-        label = self.spec.sources.get(chain)
-        if label is not None:
-            return TaintMark(label, line, Confidence.HIGH)
-        prefix = chain
-        while "." in prefix:
-            prefix = prefix.rsplit(".", 1)[0]
-            label = self.spec.sources.get(prefix)
+        tables = [self.spec.sources]
+        if self.spec.low_signal_sources and self.unit.config.include_low_signal_sources:
+            tables.append(self.spec.low_signal_sources)
+        for table in tables:
+            label = table.get(chain)
             if label is not None:
                 return TaintMark(label, line, Confidence.HIGH)
+            prefix = chain
+            while "." in prefix:
+                prefix = prefix.rsplit(".", 1)[0]
+                label = table.get(prefix)
+                if label is not None:
+                    return TaintMark(label, line, Confidence.HIGH)
         return None
 
     def _is_sanitized(self, tokens: Sequence[Token]) -> bool:
@@ -495,6 +594,11 @@ class _Analysis:
         chains = self._chains(tokens)
         if not chains:
             return False
+        if self.spec.value_accessors:
+            chains = [
+                chain.rsplit(".", 1)[0] if "." in chain and chain.rsplit(".", 1)[1] in self.spec.value_accessors else chain
+                for chain in chains
+            ]
         return all(chain in self.sanitized for chain in chains)
 
     def _chains(self, tokens: Sequence[Token]) -> List[str]:
@@ -699,6 +803,47 @@ def _shell_wrapper_argument(
     return None
 
 
+_NUMERIC_CONVERSION = re.compile(r"%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|j|z|t|L)?([a-zA-Z%])")
+
+
+def _numeric_format(argument: Sequence[Token]) -> bool:
+    """Định dạng printf chỉ có %d %u %x %f ... ( không %s, %c ): kết quả không chứa chữ do người khác chọn."""
+    text = _sole_string(argument)
+    if text is None:
+        return False
+    conversions = _NUMERIC_CONVERSION.findall(text)
+    return bool(conversions) and all(c in "diouxXeEfFgGaA%" for c in conversions)
+
+
+_STANDARD_INPUT_NAMES = frozenset({"stdin", "std.cin", "cin", "STDIN_FILENO", "0"})
+
+
+def _is_standard_input(argument: Sequence[Token], spec: LanguageSpec) -> bool:
+    meaningful = [token for token in argument if not (token.kind == OP and token.text in "()")]
+    if len(meaningful) == 1 and meaningful[0].text in _STANDARD_INPUT_NAMES:
+        return True
+    chain, end = _read_chain(meaningful, 0, spec)
+    return chain in _STANDARD_INPUT_NAMES and end == len(meaningful)
+
+
+def _out_target(argument: Sequence[Token], spec: LanguageSpec) -> Optional[str]:
+    """Biến nhận dữ liệu của `fgets(buf, ...)`, `scanf("%d", &n)`, `read(fd, (char *)p, n)`."""
+    tokens = list(argument)
+    while tokens and tokens[0].kind == OP and tokens[0].text in ("&", "*", "("):
+        if tokens[0].text == "(":
+            after = _group_end(tokens, 0)
+            inner = tokens[1 : after - 1] if after is not None else []
+            if after is not None and inner and all(t.kind == IDENT or t.text in ("*", "&") for t in inner) and after < len(tokens):
+                # (char *)p: bỏ phép ép kiểu
+                tokens = tokens[after:]
+                continue
+        tokens = tokens[1:]
+    if not tokens:
+        return None
+    chain, _ = _read_chain(tokens, 0, spec)
+    return chain
+
+
 def _sole_string(argument: Sequence[Token]) -> Optional[str]:
     meaningful = [token for token in argument if not token.in_string]
     if len(meaningful) == 1 and meaningful[0].kind == STRING:
@@ -722,6 +867,14 @@ _ALWAYS_SQL = frozenset(
         "ExecuteSqlRaw",
         "createNativeQuery",
         "createSQLQuery",
+        "sqlite3_exec",
+        "sqlite3_prepare",
+        "sqlite3_prepare_v2",
+        "sqlite3_prepare_v3",
+        "mysql_real_query",
+        "PQexec",
+        "PQexecParams",
+        "PQsendQuery",
     }
 )
 
@@ -871,6 +1024,30 @@ def _group_end(tokens: Sequence[Token], opening: int) -> Optional[int]:
             if depth == 0:
                 return cursor + 1
     return None
+
+
+def _is_literal_choice(tokens: Sequence[Token]) -> bool:
+    """`"a"`, `"a" "b"`, hoặc `cond ? "a" : "b"`: mọi giá trị có thể đều là literal."""
+    depth = 0
+    for index, token in enumerate(tokens):
+        if token.kind != OP or token.in_string:
+            continue
+        if token.text in "([":
+            depth += 1
+        elif token.text in ")]":
+            depth -= 1
+        elif token.text == "?" and depth == 0:
+            branches = tokens[index + 1 :]
+            inner = 0
+            for split, item in enumerate(branches):
+                if item.kind == OP and item.text in "([":
+                    inner += 1
+                elif item.kind == OP and item.text in ")]":
+                    inner -= 1
+                elif item.kind == OP and item.text == ":" and inner == 0:
+                    return _is_literal(branches[:split]) and _is_literal_choice(branches[split + 1 :])
+            return False
+    return bool(tokens) and _is_literal(tokens)
 
 
 def _is_literal(tokens: Sequence[Token]) -> bool:

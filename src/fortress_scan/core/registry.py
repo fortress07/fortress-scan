@@ -730,6 +730,149 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
     ),
 )
 
+# --------------------------------------------------------------- mã native
+#
+# OWASP Top 10 viết cho ứng dụng web và không có mục nào cho lỗi bộ nhớ. Phân
+# loại có thẩm quyền ở đây là CWE; nhãn OWASP đi kèm là mục GẦN NHẤT chứ không
+# phải khớp chính xác: tràn bộ đệm, use-after-free, tràn số nguyên là lỗi của
+# chính thiết kế quản lý bộ nhớ ( Insecure Design ), còn format string là dữ
+# liệu bị diễn giải thành chỉ thị nên thuộc Injection.
+_OWASP_MEMORY = ("A06:2025-Insecure Design", "A04:2021-Insecure Design")
+
+_NATIVE_RULES: Tuple[RuleSpec, ...] = (
+    RuleSpec(
+        id="FSB-MEM-001",
+        title="Ghi vượt kích thước vùng nhớ đích ( tràn bộ đệm )",
+        category=Category.MEMORY,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-120", "CWE-121", "CWE-122", "CWE-787"),
+        owasp=_OWASP_MEMORY,
+        description=(
+            "Một lời gọi chép hoặc đọc dữ liệu vào một mảng có kích thước cố định mà không có "
+            "giới hạn nào khớp với kích thước đó: gets(), strcpy()/strcat()/sprintf() với nguồn "
+            "không bị chặn độ dài, scanf(\"%s\") không có độ rộng, hoặc memcpy()/read()/fgets() "
+            "với độ dài lớn hơn mảng hay lấy thẳng từ dữ liệu ngoài. Phần dư đè lên bộ nhớ kề "
+            "bên -- trên stack là địa chỉ trả về, trên heap là siêu dữ liệu của bộ cấp phát -- "
+            "và đó là con đường kinh điển dẫn tới chạy mã tùy ý."
+        ),
+        remediation=(
+            "Dùng hàm có giới hạn và truyền đúng kích thước đích: fgets(buf, sizeof buf, f), "
+            "snprintf(buf, sizeof buf, ...), strlcpy/strlcat hoặc memcpy sau khi đã kiểm "
+            "len <= sizeof buf. Với scanf, luôn ghi độ rộng ( %63s cho mảng 64 byte ). Trong "
+            "C++, thay mảng char bằng std::string hoặc std::array và truy cập qua .at()."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/120.html",),
+    ),
+    RuleSpec(
+        id="FSB-MEM-002",
+        title="Chuỗi định dạng không phải hằng ( format string )",
+        category=Category.MEMORY,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-134",),
+        owasp=_OWASP_INJECTION,
+        description=(
+            "Đối số định dạng của printf()/syslog() và họ hàng là một giá trị thay đổi được chứ "
+            "không phải chuỗi literal. Nếu giá trị đó chứa %x hoặc %s, hàm sẽ đọc tham số không "
+            "tồn tại trên stack và làm lộ bộ nhớ; nếu chứa %n, nó GHI vào địa chỉ do kẻ tấn công "
+            "chọn, đủ để chiếm quyền điều khiển tiến trình."
+        ),
+        remediation=(
+            "Luôn truyền định dạng là hằng: printf(\"%s\", msg) thay vì printf(msg). Bật "
+            "-Wformat -Wformat-security và đánh dấu hàm bọc bằng "
+            "__attribute__((format(printf, n, m))) để trình biên dịch kiểm hộ."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/134.html",),
+    ),
+    RuleSpec(
+        id="FSB-MEM-003",
+        title="Dùng con trỏ sau khi đã giải phóng ( use-after-free )",
+        category=Category.MEMORY,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-416",),
+        owasp=_OWASP_MEMORY,
+        description=(
+            "Một con trỏ được free()/delete rồi bị đọc, ghi hoặc truyền đi tiếp trên một đường "
+            "chạy không gán lại nó. Vùng nhớ đó có thể đã được cấp cho đối tượng khác, nên thao "
+            "tác qua con trỏ cũ làm hỏng dữ liệu không liên quan; kẻ tấn công điều khiển được "
+            "thứ chiếm chỗ vùng nhớ thì biến lỗi này thành chạy mã."
+        ),
+        remediation=(
+            "Gán con trỏ về NULL ngay sau khi giải phóng, và giải phóng ở đúng một chỗ sở hữu "
+            "nó. Trong C++, dùng std::unique_ptr/std::shared_ptr thay cho delete thủ công."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/416.html",),
+    ),
+    RuleSpec(
+        id="FSB-MEM-004",
+        title="Giải phóng cùng một vùng nhớ hai lần ( double free )",
+        category=Category.MEMORY,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-415",),
+        owasp=_OWASP_MEMORY,
+        description=(
+            "Cùng một con trỏ bị free()/delete lần thứ hai trên một đường chạy mà ở giữa nó "
+            "không được gán lại. Lần giải phóng thứ hai làm hỏng danh sách vùng trống của bộ "
+            "cấp phát; với glibc và hầu hết bộ cấp phát khác, đây là nguyên liệu quen thuộc để "
+            "ghi tùy ý vào bộ nhớ."
+        ),
+        remediation=(
+            "Gán con trỏ về NULL sau khi free() ( free(NULL) là vô hại ), và gom việc dọn dẹp "
+            "về một nhãn duy nhất ở cuối hàm thay vì giải phóng rải rác trên từng nhánh lỗi."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/415.html",),
+    ),
+    RuleSpec(
+        id="FSB-MEM-005",
+        title="Tràn hoặc sai dấu số nguyên ở kích thước cấp phát hay độ dài chép",
+        category=Category.MEMORY,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-190", "CWE-195", "CWE-680"),
+        owasp=_OWASP_MEMORY,
+        description=(
+            "Một con số đến từ dữ liệu ngoài đi vào phép nhân/cộng tính kích thước cấp phát mà "
+            "không được kiểm tràn, hoặc một độ dài có dấu chỉ được chặn trên rồi đem làm độ dài "
+            "chép. Phép tính quấn vòng cho ra vùng nhớ nhỏ hơn dữ liệu sẽ ghi vào, còn số âm "
+            "lọt qua phép so sánh rồi thành một size_t khổng lồ -- cả hai kết thúc bằng tràn "
+            "bộ đệm trên heap."
+        ),
+        remediation=(
+            "Dùng calloc(n, size) hoặc reallocarray() thay cho malloc(n * size), hoặc kiểm "
+            "n > SIZE_MAX / size trước khi nhân. Khai báo độ dài là size_t, hoặc kiểm cả "
+            "len < 0 lẫn len > max trước khi dùng."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/680.html",),
+    ),
+    RuleSpec(
+        id="FSB-MEM-006",
+        title="Lệch một phần tử hoặc thiếu ký tự kết thúc chuỗi",
+        category=Category.MEMORY,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-193", "CWE-170"),
+        owasp=_OWASP_MEMORY,
+        description=(
+            "Vòng lặp chạy tới i <= N trên mảng N phần tử, ghi buf[n] = 0 với n có thể bằng "
+            "đúng kích thước mảng, strncat() nhận nguyên sizeof(dst), hay strncpy() chép đầy "
+            "mảng mà không đặt ký tự kết thúc. Một byte vượt biên nghe nhỏ, nhưng nó đủ để đè "
+            "byte thấp của con trỏ khung hay của biến kề bên, và chuỗi không kết thúc khiến "
+            "mọi hàm đọc tiếp phía sau chạy tràn ra ngoài."
+        ),
+        remediation=(
+            "Dùng i < N, đọc tối đa sizeof(buf) - 1 byte trước khi đặt buf[n] = 0, truyền "
+            "sizeof(dst) - strlen(dst) - 1 cho strncat(), và luôn ghi buf[sizeof buf - 1] = 0 "
+            "sau strncpy() -- hoặc dùng strlcpy/snprintf để khỏi phải nhớ."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/193.html",),
+    ),
+)
+
+_RULE_LIST = _RULE_LIST + _NATIVE_RULES
+
 RULES: Dict[str, RuleSpec] = {rule.id: rule for rule in _RULE_LIST}
 
 
