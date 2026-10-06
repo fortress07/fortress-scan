@@ -265,7 +265,7 @@ nhị phân: **không chạy, không nạp, không giải nén ra đĩa, không 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/binary-triage-dark.svg">
-  <img alt="39 dấu hiệu ransomware chia theo cấu trúc, năng lực và nội dung, kèm thang kết luận và kết quả đo trên hai bộ tệp" src="docs/img/binary-triage-light.svg" width="100%">
+  <img alt="40 dấu hiệu ransomware chia theo cấu trúc, năng lực và nội dung, kèm thang kết luận và kết quả đo trên hai bộ tệp" src="docs/img/binary-triage-light.svg" width="100%">
 </picture>
 
 ```bash
@@ -294,20 +294,49 @@ Mã thoát giống hệt phần quét mã nguồn: `0` sạch, `1` có phát hi�
 Quét cả thư mục thì theo đúng luật cũ: không đi theo liên kết tượng trưng, bỏ `.git`, có trần số
 tệp và trần kích thước, và một tệp hỏng không làm chết cả lượt quét.
 
-### 39 dấu hiệu, chia ba nhóm, mỗi dấu hiệu kèm mã ATT&CK
+### 40 dấu hiệu, chia ba nhóm, mỗi dấu hiệu kèm mã ATT&CK
 
 | Nhóm | Số | Nhìn vào đâu | Ví dụ |
 | :--- | :---: | :--- | :--- |
-| **Cấu trúc** | 14 | header, section, entropy, overlay, resource, dấu packer | section vừa ghi vừa thực thi được, bảng import nhỏ bất thường, tự xưng là phần mềm hãng lớn mà không có chữ ký |
+| **Cấu trúc** | 15 | header, section, entropy, overlay, resource, dấu packer | section vừa ghi vừa thực thi được, bảng import nhỏ bất thường, tên lệnh bị che bằng XOR |
 | **Năng lực** | 16 | import, ký hiệu, chuỗi lệnh gọi | đủ chuỗi duyệt tệp + mã hoá + ghi đè, lệnh xoá bản sao bóng, danh sách dừng dịch vụ CSDL và sao lưu |
 | **Nội dung** | 9 | văn bản và dữ liệu nằm trong tệp | ghi chú đòi tiền chuộc, địa chỉ `.onion`, ví tiền mã hoá, khoá công khai nhúng sẵn, hằng số AES / ChaCha |
 
-Cộng lại là **25 kỹ thuật ATT&CK** khác nhau. Mỗi dấu hiệu in ra kèm **bằng chứng và vị trí**
+Cộng lại là **26 kỹ thuật ATT&CK** khác nhau. Mỗi dấu hiệu in ra kèm **bằng chứng và vị trí**
 ( offset trong tệp, tên section, tên import, dòng trong script ), **lý do nó đáng ngờ**, **trường
 hợp lành có thể gây ra nó**, và **việc nên làm**.
 
 Địa chỉ `.onion`, ví Bitcoin và ví bech32 đều bị **kiểm checksum** trước khi được tính là dấu
 hiệu, nên một chuỗi hex ngẫu nhiên trông giống ví sẽ không lọt vào báo cáo.
+
+### Chuỗi bị che: đo trước, vá sau
+
+Dấu hiệu nội dung mạnh đúng tới lúc tệp còn để chuỗi lộ thiên, mà mã độc thật thì gần như không
+bao giờ. Nên trước khi khoe số bắt được, công cụ tự đo xem nó gãy ở đâu: lấy **đúng một tệp**
+mang đủ dấu hiệu rồi chỉ đổi cách giấu, cấu trúc giữ nguyên.
+
+| Biến thể | Trước khi vá | Sau khi vá |
+| :--- | :--- | :--- |
+| chuỗi đọc được, import đầy đủ | rõ rệt ( 100 ) | rõ rệt ( 100 ) |
+| **chuỗi bị XOR một byte**, import còn nguyên | cần lưu ý ( 20 ) | **rõ rệt ( 100 )** |
+| **chuỗi bị XOR + chỉ còn import stub** | **sạch ( 0 )** | **rõ rệt ( 100 )** |
+| pack thật sự, không còn chuỗi nào | cần lưu ý ( 19 ) | cần lưu ý ( 19 ) |
+
+Một phép XOR một byte - thứ tầm thường nhất trong nghề - từng đánh sập cả 9 dấu hiệu nội dung
+cùng lúc. Cách vá: XOR với một hằng số **giữ nguyên** hiệu XOR của hai byte liền nhau, vì
+`(a^k) ^ (b^k) = a^b`. Nên thay vì thử 255 khoá trên cả tệp, công cụ tính hiệu đó **đúng một
+lần** rồi tìm mỏ neo trong kết quả; trúng ở đâu thì khoá lộ ra ngay tại đó. Vùng quanh chỗ trúng
+được giải rồi cho chạy lại **cả 40 dấu hiệu**, và bản thân việc giấu thành một dấu hiệu riêng
+( `FSX-S15` ), vì phần mềm lành không có lý do gì phải che tên lệnh của hệ điều hành.
+
+Mỏ neo là **tên lệnh và tên API của hệ điều hành**, không phải chuỗi đặc trưng của một họ mã độc.
+Chữ ký theo họ chết ngay khi tác giả đổi một ký tự; tên lệnh thì không đổi được vì Windows quy
+định nó, không phải kẻ tấn công.
+
+> [!WARNING]
+> Dòng cuối của bảng là chỗ phép này **không** cứu được, và nó nằm trong bộ test chứ không chỉ ở
+> đây: pack thật sự thì chuỗi không còn tồn tại dưới dạng XOR một byte nữa. Khoá lặp nhiều byte,
+> phép cộng, RC4 hay AES cũng vậy. "Không tìm thấy khoá" **không** có nghĩa là "tệp không che gì".
 
 ### Kết luận không phải phép cộng điểm
 
@@ -338,7 +367,7 @@ hai phép đo, cả hai đều chạy lại được.
 
 | | |
 | :--- | :--- |
-| đã phân tích | **1.108 tệp**, 626 MB, trong 223,5 giây ( khoảng 2,8 MB mỗi giây ) |
+| đã phân tích | **1.108 tệp**, 626 MB, trong 245,4 giây ( khoảng 2,6 MB mỗi giây ) |
 | định dạng | 786 ELF, 310 script, 5 PE, 4 Mach-O, 1 JAR, 2 không nhận ra |
 | từ mức "đáng ngờ" trở lên | **0 tệp** |
 | mức "cần lưu ý" | 14 tệp ( 1,26% ) |
@@ -367,7 +396,7 @@ trong đó 10 mẫu "rõ rệt" và 1 mẫu "nhiều khả năng".
 > không có một dòng mã thực thi nào bên trong. Repo này không chứa, không tải và không sinh ra mẫu
 > mã độc thật.
 
-Riêng phần này có **206 bài kiểm tra** ( 2 bài chỉ chạy trên nền tảng khác ), trong đó có một bài
+Riêng phần này có **229 bài kiểm tra** ( 2 bài chỉ chạy trên nền tảng khác ), trong đó có một bài
 đột biến từng byte với seed cố định, một bài cắt cụt tệp ở mọi độ dài, và một bài quét AST để chắc
 cả gói không gọi `eval`, `exec`, `marshal`, `pickle`, `subprocess` hay `socket`.
 

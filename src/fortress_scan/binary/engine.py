@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from ..security import paths as safe_paths
-from . import detectors, reference, scoring
+from . import deobfuscate, detectors, reference, scoring
 from .formats import archive, elf, embedded, macho, pe, scripts
 from .model import Parsed, Tier, TriageReport, Verdict
 from .strings import StringPool, add_text, extract
@@ -71,7 +71,32 @@ def _build_pool(parsed: Parsed, data: bytes) -> StringPool:
         for name, source in parsed.names:
             if source == "tên mục trong kho":
                 pool.add(name, -1, "tên mục trong kho")
+    _recover_hidden_strings(parsed, data, pool)
     return pool
+
+
+def _recover_hidden_strings(parsed: Parsed, data: bytes, pool: StringPool) -> None:
+    """Chuỗi bị che bằng XOR một byte: giải ra rồi đổ vào cùng một bể.
+
+    Đổ chung bể là có chủ ý: cả 39 dấu hiệu chạy lại trên phần vừa giải mà
+    không phải viết riêng đường nào, còn nhãn `xor:0x..` giữ cho báo cáo nói
+    rõ chuỗi này không nằm lộ thiên.
+    """
+    if parsed.family not in ("pe", "elf", "macho", "script", "unknown"):
+        return
+    try:
+        recovered = deobfuscate.recover(data)
+    except Exception as exc:  # một tệp thù địch không được làm chết cả lượt
+        parsed.anomalies.append("deobfuscate: %s: %s" % (type(exc).__name__, exc))
+        return
+    notes = []
+    for key, start, blob, anchor in recovered:
+        label = "xor:0x%02x" % key
+        extract(blob, pool, base_label=label, base_offset=start)
+        notes.append("%s tại offset 0x%x ( trúng mỏ neo %s )"
+                     % (label, start, anchor.decode("utf-16-le" if b"\x00" in anchor else "ascii")))
+    if notes:
+        parsed.metadata["_xor_recovered"] = " | ".join(notes)
 
 
 def analyze_bytes(data: bytes, name: str = "", truncated: bool = False) -> TriageReport:

@@ -21,8 +21,16 @@ lần ở chế độ đọc, có bài kiểm tra đếm số lần `open()` đ�
   Mach-O ( kể cả universal ), JAR / WAR / APK / zipapp, Java `.class`, PyInstaller CArchive,
   buildinfo của Go, và script PowerShell / batch / VBScript / JScript / HTA / shell / Python kèm
   bóc base64 nhiều lớp, gzip, `-EncodedCommand` và UTF-16.
-- **39 dấu hiệu** ( 14 cấu trúc, 16 năng lực, 9 nội dung ) trên **25 kỹ thuật ATT&CK**, mỗi dấu
+- **40 dấu hiệu** ( 15 cấu trúc, 16 năng lực, 9 nội dung ) trên **26 kỹ thuật ATT&CK**, mỗi dấu
   hiệu kèm bằng chứng, vị trí trong tệp, lý do, trường hợp lành có thể gây ra nó, và việc nên làm.
+- **Khôi phục chuỗi bị che bằng XOR một byte.** Đo trước khi vá: XOR riêng vùng chuỗi của một tệp
+  mang đủ dấu hiệu làm kết luận tụt từ "rõ rệt" ( 100 điểm ) xuống "cần lưu ý" ( 20 ), và XOR kèm
+  bảng import rút gọn thì tụt hẳn về "sạch". Cách vá dùng tính bất biến của hiệu XOR giữa hai byte
+  liền nhau nên chỉ cần **một lượt quét thay cho 255**; vùng quanh chỗ trúng được giải rồi cho chạy
+  lại cả 40 dấu hiệu, và bản thân việc che giấu thành dấu hiệu `FSX-S15`. Sau khi vá, cả hai ca
+  trên trở lại "rõ rệt". Mỏ neo là tên lệnh và tên API của hệ điều hành, không phải chuỗi của một
+  họ mã độc cụ thể. Phép này **không** bắt được khoá lặp nhiều byte, phép cộng, RC4 hay AES, và
+  README nói rõ điều đó.
 - **Kết luận theo trụ, không cộng điểm.** Entropy cao và dấu packer không bao giờ tự đẩy kết luận
   quá mức "cần lưu ý", vì một trình cài đặt bị nén có đúng chân dung đó.
 - **Chặn trần cho tài liệu phát hiện.** Tệp dày đặc mã ATT&CK, mã CWE và cú pháp regex bị chặn ở
@@ -34,7 +42,7 @@ lần ở chế độ đọc, có bài kiểm tra đếm số lần `open()` đ�
 - **Đo trên 1.108 tệp lành** ( 626 MB ): 0 tệp đạt mức "đáng ngờ" trở lên, 14 tệp "cần lưu ý",
   1.094 tệp "sạch". Đo lại bằng `tools/measure_binary_corpus.py`. Trên 11 mẫu dựng từng byte
   trong test, 11 / 11 đạt từ mức "nhiều khả năng" trở lên.
-- **206 bài kiểm tra riêng** cho phần này, gồm đột biến từng byte có seed cố định, cắt cụt tệp ở
+- **229 bài kiểm tra riêng** cho phần này, gồm đột biến từng byte có seed cố định, cắt cụt tệp ở
   mọi độ dài, header nói dối, zip bomb, Zip Slip, và một bài quét AST chắc rằng cả gói không gọi
   `eval`, `exec`, `marshal`, `pickle`, `subprocess` hay `socket`.
 

@@ -601,6 +601,9 @@ def structural(context: Context) -> None:
         )
     if parsed.family == "pe":
         _pe_structure(context)
+    hidden = parsed.metadata.get("_xor_recovered")
+    if hidden:
+        context.hit("FSX-S15", [Evidence(part.strip(), "chuỗi đã giải") for part in hidden.split("|")])
     if parsed.has_trait("no-section-headers") and not parsed.packers:
         context.hit("FSX-S01", [Evidence("ELF không có bảng section", "header ELF")])
     if parsed.has_trait("obfuscated-names") or (parsed.has_trait(".net") and parsed.packers):

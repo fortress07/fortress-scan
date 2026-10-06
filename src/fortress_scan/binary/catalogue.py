@@ -144,6 +144,18 @@ _SPECS = (
         "Kiểm tra lại tệp gốc; nếu cố ý bị làm hỏng thì xử lý như tệp đáng ngờ.",
         ("T1027",),
     ),
+    IndicatorSpec(
+        "FSX-S15", "structural", _S, 4,
+        "Tên lệnh / tên API bị che bằng XOR một byte",
+        "Tìm thấy tên lệnh phá khôi phục hoặc tên API mã hoá đang nằm dưới một phép XOR một "
+        "byte. Phần mềm bình thường không có lý do giấu tên lệnh của chính hệ điều hành; "
+        "giấu chúng chỉ có nghĩa khi tác giả muốn né công cụ dò chuỗi.",
+        "Một số trình chống crack, chống gian lận và phần mềm có bảo vệ bản quyền cũng che "
+        "chuỗi của chúng theo cách này.",
+        "Đọc phần chuỗi đã giải bên dưới: đó mới là năng lực thật của tệp. Coi mọi kết luận "
+        "dựa trên chuỗi lộ thiên của tệp này là thiếu.",
+        ("T1027", "T1140"),
+    ),
     # ---------------------------------------------------------------- năng lực
     IndicatorSpec(
         "FSX-C01", "capability", _C, 1,

@@ -131,7 +131,7 @@ REPS = 7
 BINARY_CORPUS = {
     "files": 1108,
     "megabytes": 626,
-    "seconds": 223.5,
+    "seconds": 245.4,
     "none": 1094,
     "low": 14,
     "flagged": 0,  # từ mức "đáng ngờ" trở lên: trên bộ tệp lành, mỗi tệp là một báo nhầm
