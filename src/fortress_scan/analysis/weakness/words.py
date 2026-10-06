@@ -215,6 +215,38 @@ def draws_from_nlp_data(names: Iterable[str]) -> bool:
     return any(word in _NLP_WORDS for name in names for word in split_words(name))
 
 
+# Đọc trước token chưa xác minh chỉ để lấy iss / kid / thuật toán rồi chọn
+# khoá, hoặc hàm tự khai là bản đọc không an toàn.
+_PEEK_WORDS = frozenset(
+    {
+        "iss",
+        "issuer",
+        "kid",
+        "header",
+        "headers",
+        "alg",
+        "tenant",
+        "tid",
+        "unverified",
+        "peek",
+        "insecure",
+        "unsafe",
+        "debug",
+        "inspect",
+        # công cụ in token ra màn hình cho người đọc, không dựa vào nó để cấp quyền
+        "show",
+        "print",
+        "dump",
+        "display",
+        "pretty",
+    }
+)
+
+
+def names_a_peek(identifier: str) -> bool:
+    return any(word in _PEEK_WORDS for word in split_words(identifier))
+
+
 def first_match(names: Iterable[str], predicate) -> Optional[str]:
     for name in names:
         if name and predicate(name):
@@ -365,6 +397,15 @@ _PLACEHOLDER_VALUES = frozenset(
 _TEMPLATE_MARKERS = ("${", "{{", "%(", "#{", "<%", "$(", "{0}", "%s", "{}")
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 _DOTTED_KEY = re.compile(r"^[a-z][a-z0-9_\-]*(\.[a-z0-9_\-]+)+$")
+# Khoá tài nguyên bản địa hoá `Plugins.Misc.Brevo.Fields.ApiKey`: từ ba đoạn trở
+# lên, mỗi đoạn là một định danh ngắn. JWT viết cứng ( `eyJ...` ) có đoạn dài và
+# có `-`, nên không lọt vào đây.
+_RESOURCE_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,30}(\.[A-Za-z][A-Za-z0-9_]{0,30}){2,}$")
+# `passwd == "x-oauth-basic"`: tên lược đồ xác thực, không phải mật khẩu.
+_AUTH_SCHEME_WORDS = frozenset(
+    {"x", "oauth", "oauth2", "basic", "bearer", "digest", "negotiate", "ntlm", "sso", "saml", "token"}
+)
+SLOW_KDF_WORDS = frozenset({"pbkdf", "pbkdf2", "bcrypt", "scrypt", "argon", "argon2", "argon2id", "argon2i"})
 
 # Định dạng của những nhà cung cấp mà tiền tố đủ đặc trưng để không cần đoán.
 # AKIAIOSFODNN7EXAMPLE là khoá mẫu trong tài liệu AWS, nên bị loại riêng.
@@ -386,8 +427,9 @@ KNOWN_TOKEN_FORMATS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
 _PEM_HEADER = re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----")
 _PEM_BODY = re.compile(r"[A-Za-z0-9+/=]{48}")
 _URL_CREDENTIALS = re.compile(
-    r"\b[a-z][a-z0-9+.\-]{0,30}://[^\s/@:]{1,80}:([^\s/@]{3,120})@[^\s/]+", re.IGNORECASE
+    r"\b[a-z][a-z0-9+.\-]{0,30}://([^\s/@:]{1,80}):([^\s/@]{3,120})@([^\s/:]+)", re.IGNORECASE
 )
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"})
 
 
 URL_CREDENTIALS = "mật khẩu nằm trong URL kết nối"
@@ -406,9 +448,11 @@ def known_token_format(value: str) -> Optional[str]:
             return "khoá riêng PEM"
     match = _URL_CREDENTIALS.search(value)
     if match is not None:
-        password = match.group(1)
+        user, password, host = match.group(1), match.group(2), match.group(3)
         weak = password.lower() in ("pass", "password", "pwd", "secret", "passwd")
-        if not weak and not looks_like_placeholder(password) and not password.startswith(("$", "%", "{")):
+        # `postgres://saleor:saleor@localhost/saleor`: giá trị mặc định cho máy dev.
+        local = host.lower() in _LOCAL_HOSTS or password == user
+        if not (weak or local) and not looks_like_placeholder(password) and not password.startswith(("$", "%", "{")):
             return URL_CREDENTIALS
     return None
 
@@ -451,8 +495,11 @@ def plausible_secret_value(value: str, minimum: int = 6) -> bool:
         return False
     if any(char.isspace() for char in value):
         return False  # câu chữ, nhãn giao diện, thông báo
-    if _ENV_NAME.match(value) or _DOTTED_KEY.match(value):
-        return False  # tên biến môi trường, đường dẫn khoá cấu hình
+    if _ENV_NAME.match(value) or _DOTTED_KEY.match(value) or _RESOURCE_KEY.match(value):
+        return False  # tên biến môi trường, đường dẫn khoá cấu hình, khoá tài nguyên
+    parts = [part for part in re.split(r"[-_]", value.lower()) if part]
+    if len(parts) >= 2 and all(part in _AUTH_SCHEME_WORDS for part in parts):
+        return False
     if value.startswith(("/", "./", "../", "~/", "http://", "https://", "file:")):
         return False
     if value.startswith(("$2a$", "$2b$", "$2y$", "$argon2", "pbkdf2_", "$6$", "$5$")):
@@ -557,11 +604,29 @@ def names_an_option(identifier: str) -> bool:
     return any(word in _OPTION_WORDS for word in split_words(identifier))
 
 
+# Điều kiện bao quanh cho thấy công tắc chỉ bật khi người dùng chọn, hoặc chỉ
+# cho kết nối nội bộ: `if Devise.ldap_tls_no_verify`, `case 'no-verify':`,
+# `if internalAPIConnectionIsLocal(...)`.
+_GUARD_WORDS = frozenset({"local", "loopback", "localhost", "dev", "development", "debug"})
+
+
+def names_a_guard(identifier: str) -> bool:
+    return names_an_option(identifier) or any(word in _GUARD_WORDS for word in split_words(identifier))
+
+
+# Tệp bản dịch: `'pass': 'Adgangskode'` là chữ "mật khẩu" bằng tiếng Đan Mạch.
+_TRANSLATION_DIRECTORIES = frozenset({"i18n", "l10n", "locale", "locales", "lang", "langs", "translations"})
+
+
 def is_fixture_path(relative_path: str) -> bool:
-    """Test, ví dụ và tài liệu: mật khẩu ở đây là dữ liệu mẫu, không phải bí mật bị lộ."""
+    """Test, ví dụ, tài liệu và bản dịch: chuỗi ở đây là dữ liệu mẫu hay chữ hiển thị,
+    không phải bí mật bị lộ."""
     from ...core.context import classify
     from ...core.model import PathContext
 
+    directories = relative_path.replace("\\", "/").lower().split("/")[:-1]
+    if any(part in _TRANSLATION_DIRECTORIES for part in directories):
+        return True
     return classify(relative_path) in (
         PathContext.TEST,
         PathContext.EXAMPLE,

@@ -17,7 +17,7 @@ from ...core.budget import Budget
 from ...core.model import Confidence, Severity, StepKind
 from ..base import AnalysisUnit, FindingBuilder
 from ..python.imports import ImportResolver, dotted_name
-from . import words
+from . import config_python, words
 
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _MAX_LITERAL_DEPTH = 4
@@ -262,6 +262,7 @@ class PythonWeaknessChecks:
             self._check_tls_assignment(node)
         self._check_random()
         self._check_secrets()
+        config_python.check_jwt(self)
 
     def _index(self, tree: ast.AST) -> None:
         for parent in ast.walk(tree):
@@ -535,11 +536,18 @@ class PythonWeaknessChecks:
     def _inside_slow_kdf(self, node: ast.AST) -> bool:
         current = self.parents.get(id(node))
         while current is not None and not isinstance(current, ast.stmt):
-            if isinstance(current, ast.Call):
-                if self._qual(current.func).startswith(_SLOW_KDF_PREFIXES):
-                    return True
+            if isinstance(current, ast.Call) and self._is_slow_kdf(current):
+                return True
             current = self.parents.get(id(current))
         return False
+
+    def _is_slow_kdf(self, call: ast.Call) -> bool:
+        """Thư viện KDF chậm, hoặc lớp bọc của dự án mang tên nó ( `self.pbkdf2_round` )."""
+        if self._qual(call.func).startswith(_SLOW_KDF_PREFIXES):
+            return True
+        func = call.func
+        name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else "")
+        return bool(words.SLOW_KDF_WORDS & set(words.split_words(name)))
 
     def _fed_to_slow_kdf(self, function: Optional[ast.AST], targets: Iterable[str]) -> bool:
         wanted = set(targets)
@@ -552,7 +560,7 @@ class PythonWeaknessChecks:
             else self.calls
         )
         for call in calls:
-            if self._qual(call.func).startswith(_SLOW_KDF_PREFIXES):
+            if self._is_slow_kdf(call):
                 if wanted & set(self._names_in(call)):
                     return True
         return False
@@ -911,7 +919,7 @@ class PythonWeaknessChecks:
         while current is not None and not isinstance(current, _FUNCTIONS):
             if isinstance(current, (ast.If, ast.IfExp)) and child is not current.test:
                 for name in self._names_in(current.test):
-                    if words.names_an_option(name):
+                    if words.names_a_guard(name):
                         return name
             child = current
             current = self.parents.get(id(current))

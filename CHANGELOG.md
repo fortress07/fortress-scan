@@ -25,8 +25,21 @@ gắn nhãn **A04:2025 Cryptographic Failures** và **A07:2025 Authentication Fa
 Giá trị bí mật được che thành `[redacted]` trong đoạn mã, dấu vết và thông điệp. Mẫu khoá riêng
 PEM trong `security/redaction.py` giờ che cả phần thân base64, không chỉ dòng tiêu đề.
 
-Phép phân loại ngữ cảnh nhận thêm tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như
-`RegistrationUITest.java`, `APITests.java`.
+### Cấu hình giải tuần tự và JWT
+
+- `FSB-DESER-003`: thư viện bị bật chế độ đa hình cho payload tự chọn kiểu ( Json.NET
+  `TypeNameHandling`, Jackson default typing, fastjson autoType, XStream `AnyTypePermission.ANY`,
+  Kryo không bắt đăng ký lớp, Oj `mode: :object`, `create_additions: true` ).
+- `FSB-JWT-001`: JWT được nhận mà không xác minh chữ ký, hoặc nhận thuật toán `none`, trên Python,
+  Java, C#, Go, Ruby và JavaScript / TypeScript. Lời gọi chỉ đọc trước `iss` / `kid` rồi xác minh
+  trong cùng hàm không bị báo.
+- `YAML.unsafe_load`, `Psych.unsafe_load` và `Oj.object_load` của Ruby được thêm vào bộ giải tuần
+  tự nguy hiểm của `FSB-DESER-001` / `-002`.
+
+### Ngữ cảnh tệp
+
+- Tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như `RegistrationUITest.java`, `APITests.java`.
+- Thư mục dự án .NET đặt tên theo dấu chấm, như `Newtonsoft.Json.Tests`, `Shop.Api.UnitTests`.
 
 ---
 

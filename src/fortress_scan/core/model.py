@@ -53,6 +53,7 @@ class Category(str, Enum):
     CRYPTO = "crypto"
     TLS = "tls"
     SECRET = "hardcoded-secret"
+    JWT = "jwt"
 
 
 class StepKind(str, Enum):

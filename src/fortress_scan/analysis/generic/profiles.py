@@ -624,7 +624,18 @@ _RUBY_SINKS: Tuple[GenericSink, ...] = (
         require_sql=True,
     ),
     GenericSink(
-        ("Marshal.load", "YAML.load", "Psych.load", "Marshal.restore"),
+        (
+            "Marshal.load",
+            "YAML.load",
+            "Psych.load",
+            "Marshal.restore",
+            # Psych 4 làm YAML.load an toàn; bản giữ hành vi cũ đổi tên thành unsafe_load.
+            "YAML.unsafe_load",
+            "Psych.unsafe_load",
+            "YAML.unsafe_load_file",
+            "Psych.unsafe_load_file",
+            "Oj.object_load",
+        ),
         Category.DESERIALIZATION,
         "FSB-DESER-001",
         "FSB-DESER-002",

@@ -230,10 +230,31 @@ def classify(relative_path: str) -> PathContext:
         return PathContext.PRODUCTION
 
     for part in parts[:-1]:
-        by_directory = _DIRECTORY_ROLES.get(part.lower())
+        lowered = part.lower()
+        by_directory = _DIRECTORY_ROLES.get(lowered)
+        if by_directory is None and "." in lowered:
+            # Dự án .NET đặt tên theo dấu chấm: `Newtonsoft.Json.Tests`,
+            # `Shop.Api.UnitTests`. Chỉ đoạn CUỐI quyết định, nên
+            # `Tests.Helpers.Core` không bị tính là test.
+            by_directory = _DOTTED_PROJECT_ROLES.get(lowered.rsplit(".", 1)[-1])
         if by_directory is not None:
             return by_directory
     return _classify_filename(parts[-1])
+
+
+_DOTTED_PROJECT_ROLES: Dict[str, PathContext] = {
+    suffix: PathContext.TEST
+    for suffix in (
+        "test",
+        "tests",
+        "unittests",
+        "integrationtests",
+        "functionaltests",
+        "acceptancetests",
+        "specs",
+        "testing",
+    )
+}
 
 
 def _classify_filename(name: str) -> PathContext:

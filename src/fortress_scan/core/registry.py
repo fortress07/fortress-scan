@@ -349,6 +349,33 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
         ),
     ),
     RuleSpec(
+        id="FSB-DESER-003",
+        title="Bộ giải tuần tự được cấu hình để dữ liệu đầu vào tự chọn kiểu đối tượng",
+        category=Category.DESERIALIZATION,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-502",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Một thư viện JSON hay nhị phân vốn chỉ dựng đúng kiểu được khai báo đã bị bật chế độ "
+            "đa hình: Json.NET với TypeNameHandling khác None, Jackson với default typing hoặc "
+            "LaissezFaireSubTypeValidator, fastjson với autoType, XStream với AnyTypePermission, "
+            "Kryo không bắt đăng ký lớp, Oj ở mode :object. Khi đó chính payload quyết định lớp "
+            "nào được khởi tạo, và một chuỗi gadget có sẵn trên classpath là đủ để chạy mã. Phân "
+            "tích tĩnh không biết dữ liệu đưa vào đây có tới từ bên ngoài hay không, nên mức độ "
+            "giữ ở medium; cấu hình thì chắc chắn đã bật."
+        ),
+        remediation=(
+            "Tắt chế độ đa hình ( TypeNameHandling.None, bỏ enableDefaultTyping, tắt autoType ). "
+            "Nếu thật sự cần, giới hạn bằng danh sách cho phép: ISerializationBinder của Json.NET, "
+            "BasicPolymorphicTypeValidator của Jackson, allowTypes của XStream, register() của Kryo."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/502.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
         id="FSB-IMPORT-001",
         title="Dữ liệu không tin cậy quyết định module hoặc mã được nạp",
         category=Category.DYNAMIC_IMPORT,
@@ -931,6 +958,34 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
             "trường hoặc trình quản lý bí mật, và thêm bước quét secret vào CI."
         ),
         references=("https://cwe.mitre.org/data/definitions/798.html",),
+    ),
+    RuleSpec(
+        id="FSB-JWT-001",
+        title="JWT được chấp nhận mà không xác minh chữ ký",
+        category=Category.JWT,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-347", "CWE-345"),
+        owasp=_OWASP_AUTHENTICATION,
+        description=(
+            "Token được giải mã với xác minh chữ ký bị tắt ( verify_signature: False, "
+            "JWT.decode(t, k, false), ParseUnverified ), hoặc bộ kiểm tra chấp nhận token không ký "
+            "( thuật toán 'none', parseClaimsJwt, RequireSignedTokens = false ). Ai cũng sửa được "
+            "phần claims rồi tự ký lại bằng 'none', nên mọi quyết định dựa trên sub, role hay "
+            "user_id trong token đều bị qua mặt. Lời gọi chỉ đọc iss hay kid trước khi xác minh "
+            "thật trong cùng hàm không bị báo; khi không thấy chỗ xác minh nào khác thì độ tin cậy "
+            "chỉ ở medium, vì chữ ký có thể đã được kiểm ở một tầng khác như gateway."
+        ),
+        remediation=(
+            "Luôn xác minh bằng khoá và danh sách thuật toán cố định: jwt.decode(t, key, "
+            "algorithms=['RS256']), jwt.Parse với keyfunc kiểm tra token.Method, parseSignedClaims "
+            "của jjwt, TokenValidationParameters giữ RequireSignedTokens = true. Không bao giờ để "
+            "'none' trong danh sách thuật toán."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/347.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html",
+        ),
     ),
 )
 

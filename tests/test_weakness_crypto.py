@@ -265,6 +265,30 @@ SILENT: List[Case] = [
     ("FSB-SECRET-001", JAVASCRIPT, "const opts = { withCredentials: 'same-origin' };\n"),
     ("FSB-SECRET-001", JAVASCRIPT, "const password = process.env.DB_PASSWORD;\n"),
     ("FSB-SECRET-001", JAVA, "class A { String passwordParam = \"user_password\"; }\n"),
+    # ---- Rút từ saleor, gitea, nopCommerce
+    # SHA-512 lặp rồi đưa qua PBKDF2 của chính dự án ( hasher chuyển mật khẩu từ Symfony ).
+    (
+        "FSB-CRYPTO-002",
+        PYTHON,
+        "import hashlib\nclass H:\n    def encode(self, password, salt):\n"
+        "        digest = hashlib.sha512(password.encode()).digest()\n"
+        "        return self.pbkdf2_round(digest, salt)\n",
+    ),
+    # URL CSDL mặc định cho máy dev.
+    (
+        "FSB-SECRET-001",
+        PYTHON,
+        "import dj_database_url\nDB = dj_database_url.config(default='postgres://saleor:saleor@localhost:5432/saleor')\n",
+    ),
+    # Tên lược đồ xác thực, không phải mật khẩu.
+    ("FSB-SECRET-001", GO, 'package a\nfunc f(passwd string) bool { return passwd == "x-oauth-basic" }\n'),
+    # Khoá tài nguyên bản địa hoá.
+    (
+        "FSB-SECRET-001",
+        CSHARP,
+        'var m = new Dictionary<string, string> { ["Plugins.Misc.Sendinblue.Fields.ApiKey"] = '
+        '"Plugins.Misc.Brevo.Fields.ApiKey" };\n',
+    ),
 ]
 
 
@@ -332,6 +356,55 @@ def test_provider_tokens_are_reported_even_in_tests():
     """Một token GitHub thật trong thư mục test vẫn là token thật bị lộ."""
     source = "TOKEN = '%s'\n" % GITHUB_TOKEN
     assert "FSB-SECRET-001" in rule_ids(PYTHON, source, "tests/conftest.py")
+
+
+def test_translation_files_are_not_secrets():
+    """elfinder.da.js: `'pass': 'Adgangskode'` là chữ "mật khẩu" bằng tiếng Đan Mạch."""
+    source = "elFinder.prototype.i18.da = { messages: { 'pass': 'Adgangskode', 'ok': 'OK' } };\n"
+    assert "FSB-SECRET-001" not in rule_ids(JAVASCRIPT, source, "wwwroot/lib/elfinder/js/i18n/elfinder.da.js")
+    assert "FSB-SECRET-001" in rule_ids(JAVASCRIPT, source, "wwwroot/js/settings.js")
+
+
+def test_remote_database_url_credentials_still_fire():
+    source = "DATABASE_URL = 'postgres://app:Xk29dkLq@db.prod.internal:5432/app'\n"
+    assert "FSB-SECRET-001" in rule_ids(PYTHON, source)
+
+
+@pytest.mark.parametrize(
+    "language,source",
+    [
+        # mastodon: chỉ tắt khi cấu hình LDAP bật no_verify.
+        (
+            RUBY,
+            "opts = { tls_options: DEFAULT_PARAMS.dup.tap { |o| "
+            "o[:verify_mode] = OpenSSL::SSL::VERIFY_NONE if Devise.ldap_tls_no_verify } }\n",
+        ),
+        # mastodon streaming: DB_SSLMODE=no-verify do người vận hành chọn.
+        (
+            JAVASCRIPT,
+            "switch (env.DB_SSLMODE) {\ncase 'disable':\n  cfg.ssl = false;\n  break;\n"
+            "case 'no-verify':\n  cfg.ssl = { rejectUnauthorized: false };\n  break;\n}\n",
+        ),
+        # gitea: chỉ cho kết nối nội bộ về chính máy đó.
+        (
+            GO,
+            "package p\nfunc cfg(local string) *tls.Config {\n"
+            "\tif internalAPIConnectionIsLocal(local) {\n"
+            "\t\t// comment\n"
+            "\t\treturn &tls.Config{InsecureSkipVerify: true}\n\t}\n\treturn &tls.Config{}\n}\n",
+        ),
+    ],
+)
+def test_tls_switch_behind_an_option_or_local_guard_is_low_confidence(language: str, source: str):
+    (finding,) = [f for f in findings(language, source) if f.rule_id == "FSB-TLS-001"]
+    assert finding.confidence is Confidence.LOW
+    assert any("điều kiện" in item for item in finding.evidence)
+
+
+def test_tls_switch_behind_an_unrelated_condition_stays_high():
+    source = "class A { void f() { if (user.isAdmin()) { conn.setHostnameVerifier((h, s) -> true); } } }\n"
+    (finding,) = [f for f in findings(JAVA, source) if f.rule_id == "FSB-TLS-001"]
+    assert finding.confidence is Confidence.HIGH
 
 
 def test_library_implementing_the_insecure_option_is_low_confidence():

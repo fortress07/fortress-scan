@@ -9,7 +9,7 @@ import pytest
 from fortress_scan.core.config import Config
 from fortress_scan.core.engine import scan_source
 from fortress_scan.core.registry import all_rules
-from fortress_scan.languages import JAVA, JAVASCRIPT, MANIFEST, PYTHON, SHELL, WORKFLOW
+from fortress_scan.languages import CSHARP, JAVA, JAVASCRIPT, MANIFEST, PYTHON, SHELL, WORKFLOW
 
 BIDI_OVERRIDE = chr(0x202E)
 ZERO_WIDTH_SPACE = chr(0x200B)
@@ -435,6 +435,11 @@ TRIGGERS.update(
         "FSB-CRYPTO-008": (PYTHON, "from Crypto.PublicKey import RSA\nk = RSA.generate(1024)\n"),
         "FSB-TLS-001": (PYTHON, "import requests\nr = requests.get('https://x', verify=False)\n"),
         "FSB-SECRET-001": (PYTHON, "DB_PASSWORD = 'S3cr3t!Pass2024'\n"),
+        "FSB-DESER-003": (
+            CSHARP,
+            "var s = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };\n",
+        ),
+        "FSB-JWT-001": (PYTHON, "import jwt\nclaims = jwt.decode(token, key, algorithms=['HS256', 'none'])\n"),
     }
 )
 
@@ -466,6 +471,11 @@ SAFE_VARIANTS.update(
         "FSB-CRYPTO-008": (PYTHON, "from Crypto.PublicKey import RSA\nk = RSA.generate(3072)\n"),
         "FSB-TLS-001": (PYTHON, "import requests\nr = requests.get('https://x', verify='/etc/ca.pem')\n"),
         "FSB-SECRET-001": (PYTHON, "import os\nDB_PASSWORD = os.environ['DB_PASSWORD']\n"),
+        "FSB-DESER-003": (
+            CSHARP,
+            "var s = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };\n",
+        ),
+        "FSB-JWT-001": (PYTHON, "import jwt\nclaims = jwt.decode(token, key, algorithms=['HS256'])\n"),
     }
 )
 

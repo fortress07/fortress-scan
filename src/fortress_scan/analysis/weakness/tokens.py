@@ -41,7 +41,7 @@ from ...languages import (
 from ..base import AnalysisUnit, FindingBuilder
 from ..generic.lexer import IDENT, NEWLINE, NUMBER, OP, STRING, Token, tokenize
 from ..generic.profiles import spec_for
-from . import words
+from . import config_tokens, words
 
 _SEPARATORS = frozenset({".", "::", "->", "?."})
 _ASSIGN = frozenset({"=", ":=", "+=", ".=", "?="})
@@ -698,6 +698,7 @@ class _Scan:
         self._check_key_sizes()
         self._check_tls()
         self._check_secrets()
+        config_tokens.check(self)
 
     def _match_brackets(self) -> None:
         stack: List[int] = []
@@ -1296,7 +1297,9 @@ class _Scan:
         for other in self.calls:
             if not (low <= other.index <= high) or other.index <= call.index:
                 continue
-            if any(part in _SLOW_KDF_NAMES for part in other.parts):
+            if any(part in _SLOW_KDF_NAMES for part in other.parts) or (
+                words.SLOW_KDF_WORDS & set(words.split_words(other.parts[-1]))
+            ):
                 for argument in other.arguments:
                     if wanted & set(self._names(argument)):
                         return True
@@ -1886,7 +1889,22 @@ class _Scan:
         if token.line in self.tls_lines:
             return
         self.tls_lines.add(token.line)
-        region = self._function_at(self.position.get(id(token), 0))
+        index = self.position.get(id(token), 0)
+        guard = next((name for name in config_tokens.guard_names(self, index) if words.names_a_guard(name)), None)
+        if guard is not None:
+            self._report(
+                "FSB-TLS-001",
+                token,
+                symbol,
+                message,
+                confidence=Confidence.LOW,
+                evidence=(
+                    "chỉ chạy khi điều kiện %s đúng: có vẻ là tuỳ chọn người dùng tự bật hoặc kết nối nội bộ"
+                    % guard,
+                ),
+            )
+            return
+        region = self._function_at(index)
         if region is not None and words.names_an_option(region[2]):
             # Thư viện cài đặt chính tuỳ chọn tắt xác minh cho người gọi.
             self._report(

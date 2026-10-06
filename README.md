@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/45-rule-e05d44?style=flat-square)](#-45-rule-trên-22-họ-lỗ-hổng)
-[![families](https://img.shields.io/badge/22-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-45-rule-trên-22-họ-lỗ-hổng)
+[![rules](https://img.shields.io/badge/47-rule-e05d44?style=flat-square)](#-47-rule-trên-23-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/23-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-47-rule-trên-23-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1423-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1520-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>45</b><br/><sub>rule</sub></td>
-<td align="center"><b>22</b><br/><sub>họ lỗ hổng</sub></td>
+<td align="center"><b>47</b><br/><sub>rule</sub></td>
+<td align="center"><b>23</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1423</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>1520</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="45 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="47 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,7 +90,7 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="45 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="47 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
@@ -100,7 +100,7 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 | 🟢 **A03 Software Supply Chain Failures** | `FSB-SUP-001` · `FSB-SUP-002` · `FSB-CI-003` · `FSB-CI-004` | A08:2021 |
 | 🟡 **A04 Cryptographic Failures** | `FSB-CRYPTO-001` … `FSB-CRYPTO-008`: hàm băm và thuật toán đã bị phá, ECB, IV/nonce/muối hằng, khoá viết cứng, PRNG đoán được, khoá RSA ngắn | A02:2021 |
 | 🔴 **A05 Injection** | 20 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression | A03:2021 |
-| 💗 **A07 Authentication Failures** | `FSB-TLS-001` ( tắt xác minh chứng chỉ ) · `FSB-SECRET-001` ( mật khẩu, token viết cứng ) | A07:2021 |
+| 💗 **A07 Authentication Failures** | `FSB-TLS-001` ( tắt xác minh chứng chỉ ) · `FSB-SECRET-001` ( mật khẩu, token viết cứng ) · `FSB-JWT-001` ( JWT không xác minh chữ ký ) | A07:2021 |
 | 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` | A08:2021 |
 
 > [!IMPORTANT]
@@ -144,7 +144,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 45 rule trên 22 họ lỗ hổng
+## 🔍 47 rule trên 23 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -157,7 +157,7 @@ nên bảng này không thể lệch khỏi code.
 | **Code injection** | 🔴 `FSB-EXEC-001` · 🟡 `-002` | `eval(payload)`, `exec(payload)` |
 | **Template injection ( SSTI )** | 🔴 `FSB-TMPL-001` · 🟡 `-002` | `jinja_env.from_string(tpl_nguoi_dung)` |
 | **Dynamic import / file inclusion** | 🔴 `FSB-IMPORT-001` · 🔵 `-002` | `include($_GET['page'])` |
-| **Giải tuần tự không an toàn** | 🔴 `FSB-DESER-001` · 🟡 `-002` | `pickle.loads(body)` |
+| **Giải tuần tự không an toàn** | 🔴 `FSB-DESER-001` · 🟡 `-002` · 🟡 `-003` | `pickle.loads(body)`, `TypeNameHandling.All`, `enableDefaultTyping()` |
 | **Expression language** | 🔴 `FSB-EL-001` | SpEL `parser.parseExpression(q).getValue()` |
 | **NoSQL injection** | 🟠 `FSB-NOSQL-001` | `{"$where": gia_tri_ng}` |
 | **LDAP injection** | 🟠 `FSB-LDAP-001` | `conn.search_s(base, scope, filter_ng)` |
@@ -175,6 +175,7 @@ nên bảng này không thể lệch khỏi code.
 | **Mật mã yếu** | 🟡 `FSB-CRYPTO-001` · 🟠 `-002` · 🟡 `-003` · 🟡 `-004` · 🟡 `-005` · 🟠 `-006` · 🟠 `-007` · 🟡 `-008` | `hashlib.md5(password)`, `AES.new(key, AES.MODE_ECB)` |
 | **Tắt xác minh TLS** | 🟠 `FSB-TLS-001` | `requests.get(url, verify=False)`, `rejectUnauthorized: false` |
 | **Secret viết cứng** | 🟠 `FSB-SECRET-001` | `DB_PASSWORD = "..."`, token AWS / GitHub / Stripe trong mã |
+| **JWT không xác minh** | 🟠 `FSB-JWT-001` | `jwt.decode(t, options={"verify_signature": False})`, `algorithms: ['none']` |
 
 <sub>🔴 critical · 🟠 high · 🟡 medium · 🔵 low</sub>
 
@@ -194,22 +195,46 @@ trông giống hệt mà vô hại**, nên mỗi rule đọc thêm ngữ cảnh 
 | `FSB-CRYPTO-001` / `-002` | MD5, SHA-1, SHA-256 băm **mật khẩu**, hoặc MD5/SHA-1 dựng **chữ ký, MAC** từ secret | `md5(body)` làm ETag, khoá cache, checksum; chữ ký khai báo `usedforsecurity=False`; băm trước khi đưa vào bcrypt / PBKDF2 |
 | `FSB-CRYPTO-005` / `-006` | IV, nonce, muối hay khoá **thật sự là hằng**: chuỗi, `bytes(16)`, `make([]byte, 16)`, `b"\0" * 16`, kể cả qua một biến trung gian | biến từng được `os.urandom`, `rand.Read`, `getRandomValues` đổ đầy; khoá công khai; khoá mẫu trong thư mục test |
 | `FSB-CRYPTO-007` | `Math.random`, `random.choice`, `rand()` sinh **token, OTP, session id, mật khẩu**, kể cả qua một hàm bọc trả giá trị đó về | jitter, thời gian chờ thử lại, xáo trộn danh sách, bốc token từ bộ từ vựng của mô hình ngôn ngữ |
-| `FSB-TLS-001` | `verify=False`, `rejectUnauthorized: false`, `InsecureSkipVerify: true`, `curl -k`, `TrustManager` rỗng, `AutoAddPolicy` | mã **hiện thực tuỳ chọn** đó trong thư viện ( chỉ ghi độ tin cậy thấp kèm lý do ); một ngữ cảnh SSL chỉ báo một lần |
-| `FSB-SECRET-001` | tên mang nghĩa bí mật **và** giá trị trông như bí mật, hoặc đúng định dạng token của AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic | `"password_hash"`, `"API_KEY"` ( tên biến môi trường ), `"changeme"`, `"${TOKEN}"`, hằng của `Enum`; mật khẩu mẫu trong thư mục test |
+| `FSB-TLS-001` | `verify=False`, `rejectUnauthorized: false`, `InsecureSkipVerify: true`, `curl -k`, `TrustManager` rỗng, `AutoAddPolicy` | mã **hiện thực tuỳ chọn** đó trong thư viện, hay công tắc nằm sau điều kiện tuỳ chọn hoặc kết nối nội bộ ( chỉ ghi độ tin cậy thấp kèm lý do ); một ngữ cảnh SSL chỉ báo một lần |
+| `FSB-SECRET-001` | tên mang nghĩa bí mật **và** giá trị trông như bí mật, hoặc đúng định dạng token của AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic | `"password_hash"`, `"API_KEY"` ( tên biến môi trường ), `"changeme"`, `"${TOKEN}"`, hằng của `Enum`, URL CSDL `localhost` mặc định; mật khẩu mẫu trong thư mục test, chữ trong tệp bản dịch |
 
 Giá trị bí mật **không bao giờ đi vào báo cáo**: đoạn mã, dấu vết và thông điệp đều thay nó bằng
 `[redacted]`, để báo cáo SARIF tải lên CI không trở thành chỗ rò rỉ thứ hai.
 
-Mười rule này được thử trên **16 dự án thật, 8114 tệp**, rồi sửa đến khi mã chạy thật của các dự
-án sạch không còn báo sai:
+### 🧩 Cấu hình giải tuần tự và JWT
+
+Hai họ này cũng không cần luồng dữ liệu: lỗi nằm ở **một công tắc cấu hình** của một thư viện cụ
+thể, nên mỗi kiểm tra khớp đúng công tắc đó chứ không khớp tên hàm chung chung như `decode`.
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-DESER-003` | Json.NET `TypeNameHandling` khác `None`, Jackson `enableDefaultTyping()` hay `LaissezFaireSubTypeValidator`, fastjson `autoType`, XStream `AnyTypePermission.ANY`, Kryo `setRegistrationRequired(false)`, Oj `mode: :object`, `create_additions: true` | `TypeNameHandling` đi kèm `SerializationBinder`; validator có danh sách cho phép; mã của chính jackson-databind, Kryo khai báo các công tắc đó |
+| `FSB-JWT-001` ( high ) | token **không ký** được nhận: `algorithms: ['none']`, `parseClaimsJwt`, `UnsecuredJWT`, `RequireSignedTokens = false`, `UnsafeAllowNoneSignatureType` | `JWT.create().sign(Algorithm.none())` ở phía ký; `parse()` của jjwt 0.12 ( đã từ chối token không ký ) |
+| `FSB-JWT-001` ( medium ) | claims được đọc mà **tắt xác minh**: `verify_signature: False`, `JWT.decode(t, k, false)`, `ParseUnverified`, `parse()` của jjwt trước 0.12 | đọc trước `iss` / `kid` rồi xác minh thật trong cùng hàm; hàm tên `peek` / `unverified` / `show`; mã của chính golang-jwt |
+
+Thêm vào đó, `YAML.unsafe_load` và `Psych.unsafe_load` của Ruby ( bản giữ hành vi cũ sau khi Psych 4
+làm `YAML.load` an toàn ) giờ được tính là bộ giải tuần tự nguy hiểm của `FSB-DESER-001` / `-002`.
+
+### 📏 Thử trên mã thật
+
+Mười hai rule trên được chạy trên **28 dự án thật**, rồi sửa đến khi mã chạy thật của các dự án
+sạch không còn báo sai:
 
 | Dự án | Tệp | Phát hiện ở mã chạy thật | Ghi chú |
 | :--- | ---: | ---: | :--- |
-| flask · requests · express · axios · paramiko · gin · spring-petclinic · node-jsonwebtoken | 849 | **0** | phần nằm trong test vẫn được báo nhưng hạ một mức |
+| flask · requests · express · axios · paramiko · gin · spring-petclinic · node-jsonwebtoken · jjwt · pyjwt · ruby-jwt · java-jwt · jackson-databind · Newtonsoft.Json | 4069 | **0** | phần nằm trong test vẫn được báo nhưng hạ một mức |
 | django | 2394 | 1 | `MD5PasswordHasher` đúng là băm mật khẩu bằng MD5, giữ lại cho tương thích ngược |
+| nopCommerce | 5110 | 1 | `TripleDES.Create()` khi tắt cài đặt dùng AES |
+| eShopOnWeb | 307 | 2 | khoá ký JWT và mật khẩu mặc định viết cứng trong `AuthorizationConstants.cs` |
+| gitea | 3534 | 3 | `SECRET_KEY` mặc định cũ viết cứng, MD5 dẫn xuất khoá mã hoá 2FA, và 1 TLS độ tin cậy **thấp** ( chỉ cho kết nối nội bộ ) |
+| mastodon | 4349 | 4 | mật khẩu admin cho máy dev trong `db/seeds`, 2 TLS độ tin cậy **thấp** ( chỉ khi người vận hành chọn `no-verify` ) |
 | sinatra | 178 | 1 | `verify_mode = VERIFY_NONE` trong `sinatra-contrib/lib/sinatra/runner.rb` |
-| httpx · laravel/framework | 3266 | 2 | mã hiện thực tuỳ chọn `verify=False`, chỉ ở độ tin cậy **thấp** |
-| DVWA · WebGoat · juice-shop · NodeGoat | 1427 | 53 | ứng dụng **cố tình có lỗ hổng**: ECB, khoá JWT viết cứng, MD5 mật khẩu, `Math.random()` làm secret |
+| httpx · laravel/framework · saleor · golang-jwt | 7383 | 5 | tất cả ở độ tin cậy **thấp**: mã hiện thực tuỳ chọn, hoặc đọc trước claims để định tuyến |
+| DVWA · WebGoat · juice-shop · NodeGoat | 1427 | 58 | ứng dụng **cố tình có lỗ hổng**: ECB, khoá JWT viết cứng, MD5 mật khẩu, `Math.random()` làm secret, `parse()` jjwt nhận token không ký |
+
+Tổng cộng **28751 tệp**. Các báo nhầm tìm ra trong lúc thử ( hasher bọc PBKDF2 của saleor, URL CSDL
+`localhost` mặc định, khoá tài nguyên bản địa hoá, tệp bản dịch của elfinder, thư mục
+`Newtonsoft.Json.Tests` ) đều đã được sửa và khoá lại bằng kiểm tra hồi quy.
 
 > [!NOTE]
 > Có hai thứ **phân tích tĩnh không quyết định được**, và rule nói thẳng điều đó qua độ tin cậy
