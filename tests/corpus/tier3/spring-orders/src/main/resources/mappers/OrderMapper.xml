@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acme.orders.mapper.OrderMapper">
+  <select id="findByCode" resultType="com.acme.orders.domain.Order">
+    SELECT id, code, total FROM orders WHERE code = #{code}
+  </select>
+  <select id="findSorted" resultType="com.acme.orders.domain.Order">
+    SELECT id, code, total FROM orders ORDER BY ${column}
+  </select>
+</mapper>

@@ -1094,7 +1094,23 @@ def looks_like_sql(text: str, spend: Optional[Callable[[int], None]] = None) -> 
         # Chi phí tuyến tính theo độ dài đã quét: chặn số LẦN gọi trên một tệp
         # dày đặc payload, phần bù cho chặn trên độ lớn của SQL_HINT_WINDOW.
         spend(2 + len(window) // 8)
-    return bool(SQL_STATEMENT.search(window)) or _has_select_from(window)
+    return bool(SQL_STATEMENT.search(window)) or _has_select_from(window) or _is_jdbc_call(window)
+
+
+def _is_jdbc_call(text: str) -> bool:
+    """Cú pháp escape gọi thủ tục của JDBC: `{call proc(?)}`, `{?= call f(?)}`."""
+    compact = text.lstrip().lower().replace(" ", "")
+    return compact.startswith(("{call", "{?=call"))
 
 
 NOSQL_OPERATOR_KEYS: FrozenSet[str] = frozenset({"$where", "$expr", "$function", "$accumulator"})
+
+
+# Hàm render một template nằm trên đĩa: tên template ở đâu, và bối cảnh ở đâu
+# khi nó là một dict thay vì keyword. Chỗ in thô ( `{{ x|safe }}` ) nằm trong
+# chính tệp template, nên phần nối hai đầu cần chỉ mục artifact của dự án.
+TEMPLATE_RENDERERS: Dict[str, Tuple[int, Optional[int]]] = {
+    "flask.render_template": (0, None),
+    "django.shortcuts.render": (1, 2),
+    "django.template.loader.render_to_string": (0, 1),
+}

@@ -19,3 +19,5 @@ fortress_scan-report.*
 .fortress-scan-baseline.json
 .zcode/
 diagram-preview.html
+# Repo thật của tầng 4 ( tools/fetch_corpus.py tải về, không commit )
+.corpus-cache/

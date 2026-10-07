@@ -71,5 +71,6 @@ target-version = "py39"
 # định theo hướng đòi cú pháp 3.10+ ( PEP 585/604 trần trụi ) mà dự án vẫn
 # hỗ trợ 3.9, nên để mặc định trôi theo phiên bản là tự làm CI đỏ ngẫu nhiên.
 # tests/samples là corpus lỗi CÓ Ý ĐỊNH ( Trojan Source, ký tự ẩn ) - ruff
-# sẽ báo invalid-syntax trên chính những thứ nó cần tồn tại.
-extend-exclude = ["tests/samples"]
+# sẽ báo invalid-syntax trên chính những thứ nó cần tồn tại. tests/corpus
+# cũng vậy: mã lỗi có chủ đích để đo độ chính xác của bộ quét.
+extend-exclude = ["tests/samples", "tests/corpus"]

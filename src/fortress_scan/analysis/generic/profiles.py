@@ -79,6 +79,10 @@ _COMMAND_ONLY: FrozenSet[Category] = frozenset({Category.COMMAND})
 # trả về "a;id" -- không giúp gì cho một câu lệnh shell.
 _PATH_ONLY: FrozenSet[Category] = frozenset({Category.DYNAMIC_IMPORT})
 
+# path.basename() của Node bỏ mọi thành phần thư mục: không còn `../` hay
+# đường dẫn tuyệt đối để thoát khỏi thư mục gốc mà mã nối vào.
+_TRAVERSAL: FrozenSet[Category] = frozenset({Category.PATH, Category.DYNAMIC_IMPORT})
+
 # encodeURIComponent() mã hoá < > ; | & $ ` nhưng KHÔNG mã hoá dấu nháy đơn:
 # nó nằm trong tập ký tự không dè dặt của RFC 3986. Nên nó chặn được XSS và
 # lệnh shell, còn SQL thì không.
@@ -288,6 +292,15 @@ _JS_SINKS: Tuple[GenericSink, ...] = (
         "FSB-XSS-001",
         None,
         SINK_RAW_HTML,
+    ),
+    # Express gửi chuỗi với Content-Type text/html; object thì thành JSON
+    # ( analyzer bỏ qua đối số là object/array literal ).
+    GenericSink(
+        ("res.send", "response.send", "res.end", "response.end"),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        "phản hồi HTML của Express",
     ),
     GenericSink(
         ("unserialize", "node_serialize.unserialize", "serialize.unserialize"),
@@ -519,6 +532,15 @@ _JAVA_SINKS: Tuple[GenericSink, ...] = (
             "createSQLQuery",
             "queryForObject",
             "queryForList",
+            # JdbcTemplate và lô lệnh JDBC.
+            "queryForRowSet",
+            "queryForMap",
+            "queryForLong",
+            "queryForInt",
+            "query",
+            "update",
+            "batchUpdate",
+            "addBatch",
         ),
         Category.SQL,
         "FSB-SQL-001",
@@ -559,6 +581,20 @@ _JAVA_SINKS: Tuple[GenericSink, ...] = (
         "FSB-XPATH-001",
         None,
         "một biểu thức XPath",
+    ),
+    # Phản hồi của servlet: `response.getWriter().println(x)` ( chuỗi đọc qua
+    # lời gọi ) hoặc `PrintWriter out = response.getWriter(); out.write(x)`
+    # ( theo kiểu khai báo của biến ).
+    GenericSink(
+        tuple(
+            "%s.%s" % (owner, method)
+            for owner in ("getWriter", "PrintWriter", "getOutputStream", "ServletOutputStream")
+            for method in ("print", "println", "write", "printf", "format", "append")
+        ),
+        Category.MARKUP,
+        "FSB-XSS-001",
+        None,
+        "phản hồi HTML của servlet",
     ),
 )
 
@@ -1210,6 +1246,8 @@ SPECS: Dict[str, LanguageSpec] = {
             "validator.escape": _HTML_ONLY,
             "shellQuote.quote": _COMMAND_ONLY,
             "escapeHtml": _HTML_ONLY,
+            "path.basename": _TRAVERSAL,
+            "basename": _TRAVERSAL,
         },
         declaration_keywords=frozenset({"var", "let", "const"}),
     ),
@@ -1236,6 +1274,8 @@ SPECS: Dict[str, LanguageSpec] = {
             "DOMPurify.sanitize": _HTML_ONLY,
             "sanitizeHtml": _HTML_ONLY,
             "escapeHtml": _HTML_ONLY,
+            "path.basename": _TRAVERSAL,
+            "basename": _TRAVERSAL,
         },
         declaration_keywords=frozenset({"var", "let", "const"}),
         annotation_separator=":",
@@ -1284,7 +1324,12 @@ SPECS: Dict[str, LanguageSpec] = {
             "UUID.fromString": _ALL_CATEGORIES,
             "Encode.forHtml": _HTML_ONLY,
             "StringEscapeUtils.escapeHtml4": _HTML_ONLY,
+            "StringEscapeUtils.escapeHtml": _HTML_ONLY,
+            "HtmlUtils.htmlEscape": _HTML_ONLY,
             "ESAPI.encoder": _HTML_ONLY,
+            # `ESAPI.encoder().encodeForHTML(x)`: phần khử nằm ở lời gọi thứ hai.
+            "encodeForHTML": _HTML_ONLY,
+            "encodeForHTMLAttribute": _HTML_ONLY,
         },
         annotation_sources=_JAVA_ANNOTATIONS,
     ),
@@ -1313,7 +1358,15 @@ SPECS: Dict[str, LanguageSpec] = {
         sanitizers={
             "strconv.Atoi": _ALL_CATEGORIES,
             "strconv.ParseInt": _ALL_CATEGORIES,
+            "strconv.ParseUint": _ALL_CATEGORIES,
             "strconv.ParseFloat": _ALL_CATEGORIES,
+            "strconv.ParseBool": _ALL_CATEGORIES,
+            # Định dạng một số / bool thành chuỗi: chỉ còn chữ số, dấu và chữ e.
+            "strconv.Itoa": _ALL_CATEGORIES,
+            "strconv.FormatInt": _ALL_CATEGORIES,
+            "strconv.FormatUint": _ALL_CATEGORIES,
+            "strconv.FormatFloat": _ALL_CATEGORIES,
+            "strconv.FormatBool": _ALL_CATEGORIES,
             "html.EscapeString": _HTML_ONLY,
             # url.QueryEscape mã hoá cả dấu nháy đơn.
             "url.QueryEscape": _ALL_CATEGORIES,

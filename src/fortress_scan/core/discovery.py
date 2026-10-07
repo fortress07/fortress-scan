@@ -14,6 +14,7 @@ from ..languages import (
     language_from_name,
     language_from_relative,
 )
+from ..analysis.xfile import artifacts
 from ..security import paths as safe_paths
 from .config import Config
 from .ignore import IgnoreSet, MatchBudget
@@ -67,6 +68,20 @@ class Discovery:
         # Danh sách loại trừ mặc định là quyết định của công cụ, không phải của
         # repo, nên nó đi vào thống kê chứ không thành CẢNH BÁO.
         self.excluded_directories_hit = 0
+        self.artifacts: List[DiscoveredFile] = []
+
+    def _consider_artifact(self, path: Path, relative: str, name: str) -> None:
+        """Tệp không phải mã mà luồng dữ liệu đi qua ( template, mapper, cấu hình ).
+
+        Không vào danh sách phân tích và không vào thống kê ngôn ngữ: nó chỉ là
+        dữ liệu cho phân tích xuyên file đọc khi cần.
+        """
+        if len(self.artifacts) >= artifacts.MAX_ARTIFACTS or not artifacts.is_artifact_name(name):
+            return
+        size = _artifact_size(path)
+        if size is None:
+            return
+        self.artifacts.append(DiscoveredFile(path=path, relative=relative, language="artifact", size=size))
 
     @property
     def ignore_budget_exhausted(self) -> bool:
@@ -288,6 +303,7 @@ class Discovery:
                 return None
             language = detect_language(path, label)
         if language is None:
+            self._consider_artifact(path, relative, label)
             return None
         if not safe_paths.is_regular_file(path):
             self.skipped += 1
@@ -339,6 +355,18 @@ class Discovery:
             size=size,
             identity=identity,
         )
+
+
+def _artifact_size(path: Path) -> Optional[int]:
+    if not safe_paths.is_regular_file(path):
+        return None
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if size == 0 or size > artifacts.MAX_ARTIFACT_BYTES:
+        return None
+    return size
 
 
 def _identity(status: os.stat_result) -> Optional[Tuple[int, int]]:
