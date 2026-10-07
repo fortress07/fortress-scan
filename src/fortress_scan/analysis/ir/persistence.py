@@ -97,13 +97,18 @@ _EVAL_SHAPES: Tuple[str, ...] = ("eval ", "eval(", "exec ", "| sh", "|sh", "iex 
 # Thư mục ai cũng ghi được. Một cơ chế tự chạy trỏ vào đây gần như không bao
 # giờ là cấu hình của người quản trị: nội dung ở đó bất kỳ tiến trình nào
 # cũng thay được, nên nó không phải chỗ đặt mã khởi động.
+#
+# NOSONAR ở đây là có chủ đích: S5443 đọc mỗi chuỗi dưới đây như một đường
+# dẫn mà công cụ sắp ghi vào. Nó là dữ liệu bộ dò ĐI TÌM, dùng đúng một chỗ
+# ( `item in lowered` ở _check_autostart ) để so chuỗi con trên văn bản đang
+# được phân tích; cả mô-đun analysis/ không có một lời gọi mở tệp để ghi nào.
 _WORLD_WRITABLE: Tuple[str, ...] = (
-    "/tmp/",
-    "/var/tmp/",
-    "/dev/shm/",
+    "/tmp/",  # NOSONAR
+    "/var/tmp/",  # NOSONAR
+    "/dev/shm/",  # NOSONAR
     "/run/shm/",
     "/var/lock/",
-    "c:\\windows\\temp\\",
+    "c:\\windows\\temp\\",  # NOSONAR
     "%temp%",
 )
 
