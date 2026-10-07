@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/56-rule-e05d44?style=flat-square)](#-56-rule-trên-31-họ-lỗ-hổng)
-[![families](https://img.shields.io/badge/31-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-56-rule-trên-31-họ-lỗ-hổng)
+[![rules](https://img.shields.io/badge/67-rule-e05d44?style=flat-square)](#-67-rule-trên-34-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/34-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-67-rule-trên-34-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1746-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/2149-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>56</b><br/><sub>rule</sub></td>
-<td align="center"><b>25</b><br/><sub>họ lỗ hổng</sub></td>
+<td align="center"><b>67</b><br/><sub>rule</sub></td>
+<td align="center"><b>34</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1746</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>2149</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="56 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="67 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,7 +90,7 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="56 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="67 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
@@ -144,7 +144,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 56 rule trên 31 họ lỗ hổng
+## 🔍 67 rule trên 34 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -303,6 +303,48 @@ lặng ở đó là đúng chứ không phải bỏ sót.
 
 ---
 
+## 🚨 Truy vết xâm nhập: đã có người vào đây chưa ?
+
+Mọi rule phía trên trả lời **"mã này có thể bị khai thác"**. Họ `FSB-IR` trả lời một câu khác
+hẳn: **"đã có người khai thác xong và để lại cái gì"**. Khác biệt đó không phải chuyện cách gọi
+tên. Một phát hiện injection vào hàng đợi sửa lỗi của sprint sau; một phát hiện `FSB-IR` vào quy
+trình ứng cứu **ngay hôm nay**, vì nếu nó đúng thì hệ thống đang nằm trong tay người khác.
+
+| Họ | Rule | Bắt được |
+| :--- | :--- | :--- |
+| **Webshell và cửa hậu** | 🔴 `FSB-IR-001` · 🟠 `-002` · 🟠 `-003` | tệp nhỏ trong `uploads/` nhận lệnh từ request rồi `eval(base64_decode(...))` |
+| **Cơ chế trụ lại** | 🔴 `FSB-IR-010` · 🟠 `-011` · 🟠 `-012` · 🔴 `-013` | `cron.d` tải script về chạy, `ExecStart=/tmp/...`, `ld.so.preload` |
+| **Cửa hậu truy cập** | 🟠 `FSB-IR-014` · 🔴 `-015` · 🟠 `-016` | khoá SSH có `command=`, tài khoản thứ hai UID 0, `NOPASSWD: ALL` |
+| **Thực thi trong thư mục tải lên** | 🔴 `FSB-IR-017` | `.htaccess` bật `AddHandler` ngay trong `uploads/` |
+
+### Đọc được những tệp mà không ai coi là mã nguồn
+
+Cơ chế trụ lại không nằm trong mã. Nó nằm trong `crontab`, unit của `systemd`, tệp rc của shell,
+`authorized_keys`, `ld.so.preload`, `sudoers`, `passwd`, `.htaccess`. Không tệp nào trong số đó có
+phần mở rộng mà một bộ dò ngôn ngữ nhận ra, nên **trước bản này bộ duyệt cây không hề nhìn thấy
+chúng** - mà đó đúng là nơi kẻ tấn công cắm vào, vì nó chạy mà không cần sửa một dòng mã nào.
+
+### Kết luận trên cả tệp, không trên một dòng
+
+`eval($_POST['c'])` trong một controller dài hai nghìn dòng là một **lỗ hổng**. Đúng lời gọi đó,
+nằm một mình trong một tệp bốn dòng dưới `uploads/`, mở đầu bằng `@error_reporting(0)`, là một
+**webshell đã được cắm**. Phân biệt được hai thứ chỉ có cách nhìn cả tệp, nên bộ dò tính điểm theo
+**năm trụ**: đầu vào từ xa, nơi thực thi, lớp làm rối, dấu che, cổng mật khẩu cứng.
+
+Hệ quả cố ý: khi chỉ có *đầu vào tới sink* mà không có trụ nào nói về việc cắm ghép, họ `FSB-IR`
+**im lặng** và nhường cho các rule injection. Báo lại cùng một dòng dưới cái tên "webshell" là nói
+sai về bản chất sự việc, và trong một ca ứng cứu thì nói sai chỗ đó khiến người ta đi truy một vụ
+xâm nhập không có thật.
+
+> [!NOTE]
+> Bản đầu của chính bộ dò này **báo nhầm vào mã của nó**: `indicators.py` liệt kê `eval(` và
+> `$_POST` dưới dạng chuỗi, và phép so chuỗi con không phân biệt được *gọi* với *nhắc tới*.
+> `test_samples_corpus.py` bắt được ngay lần chạy đầu. Phép vá là một bộ xóa nội dung chuỗi và
+> chú thích **giữ nguyên độ dài** ( giữ độ dài là điều kiện để vị trí dòng báo ra còn đúng ), và
+> nó đóng luôn cả lớp báo nhầm trên bộ quy tắc WAF, luật YARA và tài liệu về webshell.
+
+---
+
 ## 🌐 Quét được những dự án nào ?
 
 Python có parser AST cộng phân tích luồng dữ liệu nên **sâu hơn hẳn**. Các ngôn ngữ còn lại phân
@@ -378,6 +420,208 @@ không dám khẳng định cứng như `flask.request`.
 Ngay khi khởi động, công cụ **vá đè** `socket`, `subprocess`, `os.system`, `os.fork` và họ hàng
 của chúng, nên mọi nỗ lực gọi mạng hay tạo tiến trình đều ném lỗi. Đây là lý do anh em trỏ nó vào
 mã lạ mà không cần dựng sandbox riêng.
+
+---
+
+## 🧬 Phân tích tệp thực thi tìm ransomware ( beta )
+
+Phần này **không đọc mã nguồn**. Nó đọc thẳng byte của một tệp đã biên dịch rồi nói xem tệp đó có
+mang **chân dung của ransomware** hay không. Mọi cam kết ở mục ngay trên vẫn giữ nguyên cho tệp
+nhị phân: **không chạy, không nạp, không giải nén ra đĩa, không gửi gì ra mạng**. Tệp chỉ được mở
+đúng một lần ở chế độ đọc, và có hẳn một bài kiểm tra ngồi đếm số lần `open()` để chắc điều đó.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/binary-triage-dark.svg">
+  <img alt="40 dấu hiệu ransomware chia theo cấu trúc, năng lực và nội dung, kèm thang kết luận và kết quả đo trên hai bộ tệp" src="docs/img/binary-triage-light.svg" width="100%">
+</picture>
+
+```bash
+python -m fortress_scan binary mau.exe                            # một tệp
+python -m fortress_scan binary ./thu-muc-tai-ve --only-flagged    # cả thư mục, chỉ in tệp bị gắn cờ
+python -m fortress_scan binary mau.exe -v                         # xem thêm dấu hiệu bối cảnh
+python -m fortress_scan binary mau.exe -f json -o bao-cao.json    # JSON cho SIEM hoặc script
+```
+
+Mã thoát giống hệt phần quét mã nguồn: `0` sạch, `1` có phát hiện từ ngưỡng `--fail-on` ( mặc
+định `suspicious` ) trở lên, `2` sai cách dùng, `3` lỗi nội bộ.
+
+### Đọc được những định dạng nào
+
+| Định dạng | Đọc ra được gì |
+| :--- | :--- |
+| **PE** ( `.exe` `.dll` `.sys` ) | header, section, import / delay import / export, resource, overlay, dấu thời gian, có Authenticode hay không, imphash |
+| **.NET** | metadata ECMA-335: định danh trong `#Strings`, chuỗi literal trong `#US`, dấu của bộ làm rối |
+| **ELF** ( 32 / 64, LE / BE ) | program header, section, `dynsym` / `symtab`, `DT_NEEDED`, stripped / static / stack thực thi được |
+| **Mach-O** ( kể cả universal ) | từng slice, segment, `LC_SYMTAB`, `LC_LOAD_DYLIB`, `LC_CODE_SIGNATURE` |
+| **JAR / WAR / APK / zipapp** | danh mục thành viên, constant pool của `.class`, `Main-Class`, chuỗi trong `classes.dex` |
+| **PyInstaller** | CArchive: TOC và các mục đã nén, chỉ bung bằng `zlib` và **không bao giờ** gọi `marshal.loads` |
+| **Go** | buildinfo: phiên bản trình biên dịch và danh sách module |
+| **Script** | PowerShell, batch, VBScript, JScript, HTA, shell, Python: UTF-16, `-EncodedCommand`, base64 nhiều lớp kèm gzip / deflate, nối chuỗi, thoát bằng `` ` `` và `^` |
+
+Quét cả thư mục thì theo đúng luật cũ: không đi theo liên kết tượng trưng, bỏ `.git`, có trần số
+tệp và trần kích thước, và một tệp hỏng không làm chết cả lượt quét.
+
+### 40 dấu hiệu, chia ba nhóm, mỗi dấu hiệu kèm mã ATT&CK
+
+| Nhóm | Số | Nhìn vào đâu | Ví dụ |
+| :--- | :---: | :--- | :--- |
+| **Cấu trúc** | 15 | header, section, entropy, overlay, resource, dấu packer | section vừa ghi vừa thực thi được, bảng import nhỏ bất thường, tên lệnh bị che bằng XOR |
+| **Năng lực** | 16 | import, ký hiệu, chuỗi lệnh gọi | đủ chuỗi duyệt tệp + mã hoá + ghi đè, lệnh xoá bản sao bóng, danh sách dừng dịch vụ CSDL và sao lưu |
+| **Nội dung** | 9 | văn bản và dữ liệu nằm trong tệp | ghi chú đòi tiền chuộc, địa chỉ `.onion`, ví tiền mã hoá, khoá công khai nhúng sẵn, hằng số AES / ChaCha |
+
+Cộng lại là **26 kỹ thuật ATT&CK** khác nhau. Mỗi dấu hiệu in ra kèm **bằng chứng và vị trí**
+( offset trong tệp, tên section, tên import, dòng trong script ), **lý do nó đáng ngờ**, **trường
+hợp lành có thể gây ra nó**, và **việc nên làm**.
+
+Địa chỉ `.onion`, ví Bitcoin và ví bech32 đều bị **kiểm checksum** trước khi được tính là dấu
+hiệu, nên một chuỗi hex ngẫu nhiên trông giống ví sẽ không lọt vào báo cáo.
+
+### Chuỗi bị che: đo trước, vá sau
+
+Dấu hiệu nội dung mạnh đúng tới lúc tệp còn để chuỗi lộ thiên, mà mã độc thật thì gần như không
+bao giờ. Nên trước khi khoe số bắt được, công cụ tự đo xem nó gãy ở đâu: lấy **đúng một tệp**
+mang đủ dấu hiệu rồi chỉ đổi cách giấu, cấu trúc giữ nguyên.
+
+| Biến thể | Trước khi vá | Sau khi vá |
+| :--- | :--- | :--- |
+| chuỗi đọc được, import đầy đủ | rõ rệt ( 100 ) | rõ rệt ( 100 ) |
+| **chuỗi bị XOR một byte**, import còn nguyên | cần lưu ý ( 20 ) | **rõ rệt ( 100 )** |
+| **chuỗi bị XOR + chỉ còn import stub** | **sạch ( 0 )** | **rõ rệt ( 100 )** |
+| pack thật sự, không còn chuỗi nào | cần lưu ý ( 19 ) | cần lưu ý ( 19 ) |
+
+Một phép XOR một byte - thứ tầm thường nhất trong nghề - từng đánh sập cả 9 dấu hiệu nội dung
+cùng lúc. Cách vá: XOR với một hằng số **giữ nguyên** hiệu XOR của hai byte liền nhau, vì
+`(a^k) ^ (b^k) = a^b`. Nên thay vì thử 255 khoá trên cả tệp, công cụ tính hiệu đó **đúng một
+lần** rồi tìm mỏ neo trong kết quả; trúng ở đâu thì khoá lộ ra ngay tại đó. Vùng quanh chỗ trúng
+được giải rồi cho chạy lại **cả 40 dấu hiệu**, và bản thân việc giấu thành một dấu hiệu riêng
+( `FSX-S15` ), vì phần mềm lành không có lý do gì phải che tên lệnh của hệ điều hành.
+
+Mỏ neo là **tên lệnh và tên API của hệ điều hành**, không phải chuỗi đặc trưng của một họ mã độc.
+Chữ ký theo họ chết ngay khi tác giả đổi một ký tự; tên lệnh thì không đổi được vì Windows quy
+định nó, không phải kẻ tấn công.
+
+> [!WARNING]
+> Dòng cuối của bảng là chỗ phép này **không** cứu được, và nó nằm trong bộ test chứ không chỉ ở
+> đây: pack thật sự thì chuỗi không còn tồn tại dưới dạng XOR một byte nữa. Khoá lặp nhiều byte,
+> phép cộng, RC4 hay AES cũng vậy. "Không tìm thấy khoá" **không** có nghĩa là "tệp không che gì".
+
+### Kết luận không phải phép cộng điểm
+
+Một vụ ransomware dựng trên vài **trụ** độc lập: ghi chú tống tiền, phá khả năng khôi phục, năng
+lực mã hoá hàng loạt, kênh nhận tiền, và các bước chuẩn bị. Kết luận nhìn vào **có bao nhiêu trụ
+đứng được**, chứ không cộng dồn dấu hiệu lặt vặt cho tới khi vượt ngưỡng.
+
+> [!IMPORTANT]
+> **Entropy cao và dấu packer không bao giờ tự đẩy kết luận quá mức "cần lưu ý".** Một trình cài
+> đặt NSIS bị nén và một con ransomware có cùng một chân dung entropy, và báo cáo phải nói ra điều
+> đó. Khi nhận ra phần entropy cao chính là một installer đã biết tên, công cụ gọi tên installer
+> đó ra thay vì để con số entropy tự tố cáo tệp.
+
+Có thêm một cái trần nữa. Một tệp dày đặc **mã ATT&CK, mã CWE và cú pháp regex** thì gần như chắc
+là **tài liệu hoặc bộ quy tắc phát hiện**, không phải tệp tấn công: chính `catalogue.py` và
+`detectors.py` của công cụ này là ví dụ, và cả luật Sigma, luật YARA hay playbook ứng cứu trong
+repo của anh em cũng vậy. Những tệp đó bị **chặn trần** ở mức "đáng ngờ", nhưng **mọi dấu hiệu
+vẫn được in nguyên** kèm một dòng nói rõ trần đã được áp và vì sao, để anh em tự bỏ qua nếu tệp
+không phải tài liệu. Trần này chỉ áp cho script và tệp văn bản, **không** áp cho tệp thực thi đã
+biên dịch.
+
+### Đo trên hai bộ tệp, vì một bộ thì chẳng nói lên điều gì
+
+Một bộ dò chỉ khoe tỉ lệ bắt được thì không ai biết nó báo nhầm bao nhiêu, và ngược lại. Nên có
+hai phép đo, cả hai đều chạy lại được.
+
+**Bộ tệp lành**, là toàn bộ phần mềm đã cài trên máy đo:
+
+| | |
+| :--- | :--- |
+| đã phân tích | **1.108 tệp**, 626 MB, trong 245,4 giây ( khoảng 2,6 MB mỗi giây ) |
+| định dạng | 786 ELF, 310 script, 5 PE, 4 Mach-O, 1 JAR, 2 không nhận ra |
+| từ mức "đáng ngờ" trở lên | **0 tệp** |
+| mức "cần lưu ý" | 14 tệp ( 1,26% ) |
+| mức "sạch" | 1.094 tệp ( 98,74% ) |
+
+14 tệp ở mức "cần lưu ý" được gọi tên ra chứ không giấu: `age`, `age-keygen`, `containerd`, `ctr`,
+`docker`, `dockerd`, `git-lfs`, `pandoc`, `php8.3`, `go`, `pprof`, `trace` và hai tệp
+`goboringcrypto_*.syso`. Chúng đều là công cụ thật có mã hoá và có duyệt tệp, nên mức đó là
+**đúng** chứ không phải báo nhầm: "cần lưu ý" nghĩa là *chỉ có dấu hiệu bối cảnh*, và báo cáo nói
+đúng như vậy.
+
+```bash
+python tools/measure_binary_corpus.py /usr/bin /usr/sbin /usr/lib/jvm /usr/local/go /usr/lib/python3.13
+```
+
+Bộ tệp lành là phần mềm cài trên máy đo nên mỗi máy một khác. Đó là lý do con số này **không** nằm
+trong CI: cách trung thực duy nhất là nói rõ lệnh và để anh em tự chạy lại trên máy mình.
+
+**Bộ dựng tay**, là 11 mẫu dựng từng byte trong `tests/test_binary_indicators.py`, phủ 5 họ định
+dạng ( PE native, PE .NET, PE bị pack, PyInstaller, PowerShell mã hoá, batch thoát ký tự,
+VBScript, ELF Linux, ELF ESXi, Mach-O, JAR ): **11 / 11** đạt từ mức "nhiều khả năng" trở lên,
+trong đó 10 mẫu "rõ rệt" và 1 mẫu "nhiều khả năng".
+
+> [!NOTE]
+> 11 mẫu đó **không phải mã độc**. Chúng là cấu trúc tệp dựng bằng tay cộng với chuỗi văn bản,
+> không có một dòng mã thực thi nào bên trong. Repo này không chứa, không tải và không sinh ra mẫu
+> mã độc thật.
+
+Riêng phần này có **229 bài kiểm tra** ( 2 bài chỉ chạy trên nền tảng khác ), trong đó có một bài
+đột biến từng byte với seed cố định, một bài cắt cụt tệp ở mọi độ dài, và một bài quét AST để chắc
+cả gói không gọi `eval`, `exec`, `marshal`, `pickle`, `subprocess` hay `socket`.
+
+<details>
+<summary><b>Báo cáo thật trông như thế nào</b> ( chạy trên một mẫu dựng tay, đã cắt bớt cho vừa trang )</summary>
+
+```
+mau.exe
+  [HIGH] dấu hiệu ransomware rõ rệt  ( điểm 100/100 )
+  định dạng: PE32+, x86-64
+  kích thước: 4096 byte   sha256: 6aa4c7247eab630bf5fe95a3fc96ec0c86822f4d37bb0efb20e15c5ce173c90a
+  chữ ký: không có
+  vì sao:
+    - có văn bản ghi chú tống tiền đầy đủ ( FSX-T01 )
+    - có lệnh xoá bản sao bóng / vô hiệu hoá khôi phục ( FSX-C05 )
+    - có đủ năng lực mã hoá / phá dữ liệu hàng loạt ( FSX-C04 )
+    - có kênh nhận tiền chuộc đã kiểm checksum ( .onion v3, ví Bitcoin ) ( FSX-T03, FSX-T04 )
+  dấu hiệu:
+   !!! FSX-C05  Lệnh xoá bản sao bóng / vô hiệu hoá khôi phục hệ thống  [mạnh]  ATT&CK T1490
+         ...vssadmin.exe delete shadows /all /quiet | wmic.exe shadowco...  @ offset 0x7ed
+   !!! FSX-T01  Văn bản ghi chú đòi tiền chuộc  [mạnh]  ATT&CK T1486
+         6 nhóm cụm từ: contact, decrypt, encrypted, identity, payment, threat  @ offset 0x604
+    !  FSX-C04  Đủ chuỗi năng lực mã hoá hàng loạt: duyệt tệp + mã hoá + ghi đè ...  [đáng ngờ]  ATT&CK T1486, T1083
+         duyệt tệp: kernel32.dll!FindFirstFileW
+         mã hoá: advapi32.dll!CryptEncrypt
+         ghi đè / đổi tên / xoá: kernel32.dll!MoveFileExW
+    !  FSX-T03  Địa chỉ dịch vụ ẩn Tor ( .onion )  [đáng ngờ]  ATT&CK T1486, T1090.003
+         5vjctwwaoyejrkulxeopgq...faxneqd.onion  @ offset 0x6c5, checksum v3 hợp lệ
+    ( 6 dấu hiệu bối cảnh được ẩn; thêm -v để xem )
+  IOC:
+    ransom-note-filename: HOW_TO_DECRYPT.txt
+    onion: 5vjctwwaoyejrkulxeopgq...faxneqd.onion
+    bitcoin: 1NdqaHSaKUywW8JgVBBe2TfbfVEJCqGKwF
+  nên làm:
+    - Nếu tệp ĐÃ chạy: cô lập máy khỏi mạng ngay, nhưng ĐỪNG tắt nguồn: bộ nhớ có thể còn khoá mã hoá.
+    - Thu ảnh bộ nhớ và bản sao tệp trước khi dọn dẹp; ghi lại thời điểm.
+    - Chặn hash SHA-256 và các IOC trong báo cáo trên EDR / tường lửa / proxy toàn tổ chức.
+
+Đây là phân tích TĨNH ở bản beta: gợi ý để người phòng thủ quyết định, không phải phán quyết tuyệt đối.
+```
+
+</details>
+
+### ⚠️ Beta nghĩa là gì ở đây
+
+| Không làm được | Hệ quả thật |
+| :--- | :--- |
+| **Không dịch ngược lệnh máy** | năng lực được suy ra từ import, ký hiệu và chuỗi, nên một tệp tự giải tên API lúc chạy sẽ trông nghèo nàn một cách giả tạo |
+| **Không bung tệp đã pack** | UPX, Themida và họ hàng chỉ được **nhận ra**, không được giải nén; nội dung bên trong vẫn khuất |
+| **Không chạy tệp** | một downloader chỉ tải payload về rồi mới mã hoá sẽ gần như không để lại dấu hiệu nào |
+| **Không kiểm tính hợp lệ của chữ ký số** | báo cáo chỉ nói có hay không có chữ ký, **không** nói chữ ký đó đúng hay đã bị thu hồi |
+| **Không dịch ngược IL của .NET, không đọc bytecode Dalvik** | chỉ thấy định danh và chuỗi literal |
+| **Không có cơ sở dữ liệu họ mã độc** | công cụ nói "có những dấu hiệu gì", không nói "đây là LockBit" |
+| **Không nối mạng** | không VirusTotal, không intel trực tuyến, không sandbox đám mây |
+
+Nói gọn: đây là công cụ **phân loại nhanh** cho người phòng thủ. Nó thu hẹp một đống tệp xuống còn
+vài tệp đáng mở ra xem, và nói rõ vì sao. Nó không thay thế một buổi phân tích ngược tử tế, cũng
+không thay thế một con AV.
 
 ---
 

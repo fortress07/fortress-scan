@@ -25,7 +25,7 @@ import importlib
 import pkgutil
 import re
 import time
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import pytest
 
@@ -94,6 +94,19 @@ def _grow(unit: str, size: int) -> str:
     return unit * (size // len(unit) + 1)
 
 
+def _probe(pattern: "re.Pattern[Any]", unit: str, size: int):
+    """Đầu vào thử, cùng kiểu với mẫu.
+
+    Các parser nhị phân dò thẳng trên bytes ( rút chuỗi, shebang ), nên mẫu của
+    chúng là mẫu bytes. Chúng đọc tệp của người lạ y như các mẫu str, nên phải
+    nằm trong cùng lưới an toàn này chứ không được lặng lẽ miễn trừ.
+    """
+    text = _grow(unit, size)
+    if isinstance(pattern.pattern, bytes):
+        return text.encode("utf-8", errors="replace")
+    return text
+
+
 def _every_pattern() -> List[Tuple[str, "re.Pattern[str]"]]:
     """Mọi regex đã biên dịch mà src/ giữ ở cấp module.
 
@@ -135,6 +148,11 @@ def _patterns_in(name: str, value: object):
 ALL_PATTERNS = _every_pattern()
 
 
+def test_the_sweep_covers_byte_patterns_too():
+    """Mẫu bytes của các parser nhị phân phải nằm trong lưới, không bị bỏ qua."""
+    assert any(isinstance(pattern.pattern, bytes) for _, pattern in ALL_PATTERNS)
+
+
 def test_the_sweep_actually_finds_patterns():
     """Lưới an toàn cho chính bài kiểm tra.
 
@@ -145,7 +163,7 @@ def test_the_sweep_actually_finds_patterns():
     assert len(ALL_PATTERNS) >= 30
 
 
-def _fastest(pattern: "re.Pattern[str]", text: str) -> float:
+def _fastest(pattern: "re.Pattern[Any]", text) -> float:
     best = float("inf")
     for _ in range(REPEATS):
         started = time.perf_counter()
@@ -157,8 +175,8 @@ def _fastest(pattern: "re.Pattern[str]", text: str) -> float:
 @pytest.mark.parametrize("label,pattern", ALL_PATTERNS, ids=[item[0] for item in ALL_PATTERNS])
 def test_pattern_stays_linear(label: str, pattern: "re.Pattern[str]"):
     for shape, unit in SHAPES.items():
-        small_seconds = _fastest(pattern, _grow(unit, SMALL))
-        large_seconds = _fastest(pattern, _grow(unit, LARGE))
+        small_seconds = _fastest(pattern, _probe(pattern, unit, SMALL))
+        large_seconds = _fastest(pattern, _probe(pattern, unit, LARGE))
 
         assert large_seconds < MAX_SECONDS, (
             "%s tốn %.2fs cho %d ký tự dạng %r" % (label, large_seconds, LARGE, shape)

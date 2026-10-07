@@ -74,16 +74,6 @@ PEM trong `security/redaction.py` giờ che cả phần thân base64, không ch�
 
 - `FSB-PROTO-001`: một hàm gộp trên JS / TS duyệt khoá của đối tượng nguồn rồi ghi
   `target[key] = ...`. Trong JavaScript, `obj['__proto__']` không tạo khoá tên `__proto__` mà đi
-  thẳng vào nguyên mẫu, nên một nguồn chứa `{"__proto__": {"isAdmin": true}}` bơm được thuộc
-  tính mà mọi đối tượng trong tiến trình đọc thấy. Rule đòi hàm phải LÀ hàm gộp ( tên chứa
-  merge / extend / deep / copy, hoặc hàm gọi lại chính nó ): một vòng lặp `for (k in src)` bất
-  kỳ thì chưa nói gì về ý định. Im lặng khi hàm có bất kỳ phép loại khoá nào, và khi `for ... of`
-  chạy trên mảng vì ở đó biến lặp là giá trị chứ không phải khoá.
-
-### Prototype pollution
-
-- `FSB-PROTO-001`: một hàm gộp trên JS / TS duyệt khoá của đối tượng nguồn rồi ghi
-  `target[key] = ...`. Trong JavaScript, `obj['__proto__']` không tạo khoá tên `__proto__` mà đi
   thẳng vào nguyên mẫu, nên một nguồn chứa `{"__proto__": {"isAdmin": true}}` bơm được thuộc tính
   mà mọi đối tượng trong tiến trình đọc thấy.
 - Rule đòi HAI điều kiện cùng lúc: hàm phải là hàm gộp ( tên chứa merge / extend / deep / copy,
@@ -127,6 +117,107 @@ PEM trong `security/redaction.py` giờ che cả phần thân base64, không ch�
 
 - Tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như `RegistrationUITest.java`, `APITests.java`.
 - Thư mục dự án .NET đặt tên theo dấu chấm, như `Newtonsoft.Json.Tests`, `Shop.Api.UnitTests`.
+### Thêm: phân tích tệp thực thi tìm dấu hiệu ransomware ( beta )
+
+Lệnh con mới `fortress-scan binary <tệp hoặc thư mục>` đọc thẳng byte của một tệp đã biên dịch
+và chấm xem nó có mang chân dung ransomware hay không. Vẫn **không phụ thuộc thư viện ngoài**,
+vẫn **không nối mạng**, và **không bao giờ chạy tệp được phân tích**: tệp chỉ được mở đúng một
+lần ở chế độ đọc, có bài kiểm tra đếm số lần `open()` để chắc điều đó.
+
+- **Đọc 8 họ định dạng** bằng Python thuần: PE ( kể cả metadata .NET ), ELF ( 32 / 64, LE / BE ),
+  Mach-O ( kể cả universal ), JAR / WAR / APK / zipapp, Java `.class`, PyInstaller CArchive,
+  buildinfo của Go, và script PowerShell / batch / VBScript / JScript / HTA / shell / Python kèm
+  bóc base64 nhiều lớp, gzip, `-EncodedCommand` và UTF-16.
+- **40 dấu hiệu** ( 15 cấu trúc, 16 năng lực, 9 nội dung ) trên **26 kỹ thuật ATT&CK**, mỗi dấu
+  hiệu kèm bằng chứng, vị trí trong tệp, lý do, trường hợp lành có thể gây ra nó, và việc nên làm.
+- **Khôi phục chuỗi bị che bằng XOR một byte.** Đo trước khi vá: XOR riêng vùng chuỗi của một tệp
+  mang đủ dấu hiệu làm kết luận tụt từ "rõ rệt" ( 100 điểm ) xuống "cần lưu ý" ( 20 ), và XOR kèm
+  bảng import rút gọn thì tụt hẳn về "sạch". Cách vá dùng tính bất biến của hiệu XOR giữa hai byte
+  liền nhau nên chỉ cần **một lượt quét thay cho 255**; vùng quanh chỗ trúng được giải rồi cho chạy
+  lại cả 40 dấu hiệu, và bản thân việc che giấu thành dấu hiệu `FSX-S15`. Sau khi vá, cả hai ca
+  trên trở lại "rõ rệt". Mỏ neo là tên lệnh và tên API của hệ điều hành, không phải chuỗi của một
+  họ mã độc cụ thể. Phép này **không** bắt được khoá lặp nhiều byte, phép cộng, RC4 hay AES, và
+  README nói rõ điều đó.
+- **Kết luận theo trụ, không cộng điểm.** Entropy cao và dấu packer không bao giờ tự đẩy kết luận
+  quá mức "cần lưu ý", vì một trình cài đặt bị nén có đúng chân dung đó.
+- **Chặn trần cho tài liệu phát hiện.** Tệp dày đặc mã ATT&CK, mã CWE và cú pháp regex bị chặn ở
+  mức "đáng ngờ" và được nói rõ lý do, nên luật Sigma, luật YARA hay chính `catalogue.py` của công
+  cụ không bị gọi là ransomware. Trần chỉ áp cho script và tệp văn bản.
+- **Báo cáo console, JSON và Markdown**, có `--fail-on`, `--only-flagged`, `--max-size`,
+  `--max-files`, và mã thoát dùng được cho cổng CI. Tên tệp và chuỗi trong tệp đều được trung hoà
+  trước khi in, nên một tệp đặt tên bằng chuỗi thoát terminal không viết đè được lên báo cáo.
+- **Đo trên 1.108 tệp lành** ( 626 MB ): 0 tệp đạt mức "đáng ngờ" trở lên, 14 tệp "cần lưu ý",
+  1.094 tệp "sạch". Đo lại bằng `tools/measure_binary_corpus.py`. Trên 11 mẫu dựng từng byte
+  trong test, 11 / 11 đạt từ mức "nhiều khả năng" trở lên.
+- **229 bài kiểm tra riêng** cho phần này, gồm đột biến từng byte có seed cố định, cắt cụt tệp ở
+  mọi độ dài, header nói dối, zip bomb, Zip Slip, và một bài quét AST chắc rằng cả gói không gọi
+  `eval`, `exec`, `marshal`, `pickle`, `subprocess` hay `socket`.
+
+Đây là bản **beta**: không dịch ngược lệnh máy, không bung tệp đã pack, không kiểm tính hợp lệ
+của chữ ký số, và không có cơ sở dữ liệu họ mã độc. README nói rõ từng giới hạn một.
+
+### Truy vết xâm nhập: 11 rule trả lời "đã có người vào đây chưa"
+
+Mọi rule trước đây trả lời "mã này có thể bị khai thác". Họ `FSB-IR` trả lời một câu khác:
+"đã có người khai thác xong và để lại cái gì". Khác biệt đó đổi cả quy trình xử lý của người
+đọc, nên nó được tách thành ba họ riêng ( `webshell`, `persistence`, `access-backdoor` ) chứ
+không gộp vào một nhãn chung với injection.
+
+| Nhóm | Rule | Bắt được |
+| :--- | :--- | :--- |
+| Webshell và cửa hậu | `FSB-IR-001` `-002` `-003` | tệp nhỏ trong thư mục tải lên nhận lệnh từ request rồi giải mã và thực thi; dropper; cổng mật khẩu cứng trước sink |
+| Cơ chế trụ lại | `FSB-IR-010` `-011` `-012` `-013` | `cron.d` tải script về chạy; `ExecStart` trỏ vào `/tmp`; khối base64 giải ra rồi chạy; `ld.so.preload` |
+| Cửa hậu truy cập | `FSB-IR-014` `-015` `-016` | khoá SSH mang `command=`; tài khoản thứ hai UID 0; `NOPASSWD: ALL` |
+| Thực thi trong thư mục tải lên | `FSB-IR-017` | `.htaccess` bật `AddHandler` ngay trong `uploads/` |
+
+### Đọc được những tệp mà không ai coi là mã nguồn
+
+Thêm lớp tệp `ir-artifact`: `crontab`, unit `systemd` ( `.service` `.timer` `.socket` ), tệp rc
+của shell, `authorized_keys`, `ld.so.preload`, `sudoers`, `passwd`, `.htaccess`, cấu hình
+`nginx`/`apache`, cùng nội dung của `cron.d`, `profile.d`, `sudoers.d`, `init.d`,
+`sites-enabled`. Không tệp nào trong số đó có phần mở rộng mà bảng ngôn ngữ nhận ra, nên **bộ
+duyệt cây trước đây không hề liệt kê chúng** - mà đó đúng là nơi cơ chế trụ lại được cắm vào.
+
+Phép nhận theo vị trí luôn nhường cho phép nhận theo tên: `scripts/init.d/x.py` vẫn là Python.
+Thiếu phép nhường đó thì một thư mục trùng tên sẽ âm thầm gỡ cả cây con khỏi phần dò injection.
+
+### Kết luận trên cả tệp, không trên một dòng
+
+Bộ dò webshell tính điểm theo năm trụ trên toàn tệp ( đầu vào từ xa, nơi thực thi, lớp làm rối,
+dấu che, cổng mật khẩu ) thay vì khớp mẫu theo dòng. Khi chỉ có *đầu vào tới sink* mà không trụ
+nào nói về việc cắm ghép, họ `FSB-IR` **im lặng** và nhường cho các rule injection: gọi một lỗi
+lập trình là "webshell" sẽ đẩy một ca ứng cứu đi truy vụ xâm nhập không có thật.
+
+Mã đi mượn và mã sinh tự động không bao giờ bị kết luận là bị cắm. Ở đó phép hạ một nấc của
+`calibration` là chưa đủ, vì câu "có người cắm tệp này vào" sai hẳn về bản chất chứ không chỉ
+kém chắc.
+
+### Một lỗ hổng phát hiện trên chính bộ dò, tìm bằng cách tự quét
+
+Bản đầu của bộ dò webshell **báo nhầm vào mã của chính nó**: `indicators.py` liệt kê `eval(` và
+`$_POST` dưới dạng chuỗi, mà phép so chuỗi con không phân biệt được *gọi* với *nhắc tới*.
+`test_samples_corpus.py` bắt được ngay lần chạy đầu. Cùng lớp báo nhầm đó sẽ xảy ra trên mọi bộ
+quy tắc WAF, mọi luật YARA và mọi tài liệu viết về webshell.
+
+Phép vá là một bộ xóa nội dung chuỗi và chú thích **giữ nguyên độ dài**. Giữ độ dài là điều kiện
+bắt buộc chứ không phải tiện lợi: vị trí dòng và cột báo cho người đọc được tính bằng offset trên
+văn bản này, nên một phép cắt sẽ làm mọi phát hiện trỏ lệch sang chỗ khác. Bảng dấu hiệu vì vậy
+tách làm hai nhóm: dấu hiệu là *lời gọi* thì dò trên mã đã xóa chuỗi, dấu hiệu bản chất là *tham
+số dạng chuỗi* ( `php://input`, `display_errors` ) thì dò trên văn bản thô. Trụ sink bắt buộc
+phải là mã thật, và đó là phép kiểm giữ cho cả mô hình đứng được.
+
+Bản đầu của bộ xóa duyệt từng ký tự và tốn 117 micro giây mỗi KB, tức là một kho 100 MB phải trả
+thêm mười mấy giây. Bản sau nhảy giữa các vị trí đáng quan tâm bằng `str.find` và nhớ vị trí kế
+tiếp của từng token, nên mỗi token quét toàn tệp đúng một lượt: **38,8 micro giây mỗi KB, nhanh
+hơn 3,0 lần**, và chi phí tuyến tính theo độ dài tệp thay vì theo số chuỗi nhân số token. Tính
+tuyến tính đó có bài đo riêng trên 10 hình dạng đầu vào thù địch cho 3 ngôn ngữ, cùng cách
+`test_regex_complexity.py` canh các mẫu regex.
+
+### Số liệu
+
+**67 rule trên 34 họ lỗ hổng. 2149 kiểm tra tự động**, trong đó 87 bài cho riêng phần truy vết
+xâm nhập: mỗi rule một hiện vật thật, một cây thư mục lành phải im lặng hoàn toàn, phép nhận loại
+hiện vật cho 19 đường dẫn, và bộ đo tính tuyến tính của bộ xóa.
 
 ---
 

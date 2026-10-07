@@ -108,3 +108,27 @@ def test_readme_offers_a_dark_variant_for_every_embedded_image():
         ref for ref in light if ref.replace("-light.svg", "-dark.svg") not in dark
     )
     assert missing == [], "những hình này thiếu bản tối trong README: %s" % missing
+
+
+def test_binary_indicator_counts_on_the_diagram_come_from_the_catalogue(generated):
+    """Hình nói bao nhiêu dấu hiệu thì phải đúng bằng số dấu hiệu đang có."""
+    import collections
+
+    from fortress_scan.binary.catalogue import SPECS
+
+    counts = collections.Counter(spec.category for spec in SPECS.values())
+    svg = generated["binary-triage-light.svg"]
+    assert "%d dấu hiệu, " % len(SPECS) in svg, (
+        "hình không nhắc tới tổng %d dấu hiệu; %s" % (len(SPECS), REGENERATE)
+    )
+    for category, count in sorted(counts.items()):
+        assert "%d dấu hiệu" % count in svg, (category, count, REGENERATE)
+
+
+def test_the_score_bands_on_the_diagram_come_from_the_scorer(generated):
+    """Đổi ngưỡng điểm mà quên vẽ lại thì hình nói sai thang kết luận."""
+    from fortress_scan.binary.scoring import BANDS
+
+    svg = generated["binary-triage-light.svg"]
+    for low, high in BANDS.values():
+        assert ">%d-%d<" % (low, high) in svg, (low, high, REGENERATE)

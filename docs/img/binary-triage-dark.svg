@@ -1,0 +1,80 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 486' width='900' height='486' role='img'><defs><marker id='adark' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6' markerHeight='6' orient='auto-start-reverse'><path d='M 0 0 L 10 5 L 0 10 z' fill='#a3aec6' opacity='0.75'/></marker></defs>
+<text x='24' y='30' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14.5' fill='#e9eef8' text-anchor='start' font-weight='700'>Phân tích tệp thực thi tìm dấu hiệu ransomware ( beta )</text>
+<text x='24' y='52' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#a3aec6' text-anchor='start' font-weight='400'>40 dấu hiệu, 26 kỹ thuật ATT&amp;CK. Chỉ đọc byte của tệp, không bao giờ chạy nó.</text>
+<rect x='24' y='76' width='274' height='118' rx='10' fill='#ffc255' opacity='0.11'/>
+<rect x='24' y='76' width='274' height='118' rx='10' fill='none' stroke='#ffc255' stroke-width='1.4' opacity='0.50'/>
+<rect x='24' y='76' width='4' height='118' rx='2' fill='#ffc255' opacity='0.95'/>
+<text x='44' y='104' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='13' fill='#ffc255' text-anchor='start' font-weight='700'>CẤU TRÚC</text>
+<rect x='194' y='90' width='84' height='19' rx='9.5' fill='#ffc255' opacity='0.16'/>
+<rect x='194' y='90' width='84' height='19' rx='9.5' fill='none' stroke='#ffc255' stroke-width='1' opacity='0.45'/>
+<text x='236' y='103.7' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#ffc255' text-anchor='middle' font-weight='700'>15 dấu hiệu</text>
+<text x='44' y='132' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>header, section, entropy, overlay, packer</text>
+<rect x='38' y='146' width='246' height='34' rx='7' fill='#ffc255' opacity='0.10'/>
+<text x='48' y='168' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='9.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.90'>PE · ELF · Mach-O · JAR · script</text>
+<rect x='313' y='76' width='274' height='118' rx='10' fill='#93a2ff' opacity='0.11'/>
+<rect x='313' y='76' width='274' height='118' rx='10' fill='none' stroke='#93a2ff' stroke-width='1.4' opacity='0.50'/>
+<rect x='313' y='76' width='4' height='118' rx='2' fill='#93a2ff' opacity='0.95'/>
+<text x='333' y='104' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='13' fill='#93a2ff' text-anchor='start' font-weight='700'>NĂNG LỰC</text>
+<rect x='483' y='90' width='84' height='19' rx='9.5' fill='#93a2ff' opacity='0.16'/>
+<rect x='483' y='90' width='84' height='19' rx='9.5' fill='none' stroke='#93a2ff' stroke-width='1' opacity='0.45'/>
+<text x='525' y='103.7' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#93a2ff' text-anchor='middle' font-weight='700'>16 dấu hiệu</text>
+<text x='333' y='132' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>import, symbol, chuỗi lệnh gọi</text>
+<rect x='327' y='146' width='246' height='34' rx='7' fill='#93a2ff' opacity='0.10'/>
+<text x='337' y='168' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='9.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.90'>mã hoá hàng loạt · chặn khôi phục</text>
+<rect x='602' y='76' width='274' height='118' rx='10' fill='#ff8ac0' opacity='0.11'/>
+<rect x='602' y='76' width='274' height='118' rx='10' fill='none' stroke='#ff8ac0' stroke-width='1.4' opacity='0.50'/>
+<rect x='602' y='76' width='4' height='118' rx='2' fill='#ff8ac0' opacity='0.95'/>
+<text x='622' y='104' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='13' fill='#ff8ac0' text-anchor='start' font-weight='700'>NỘI DUNG</text>
+<rect x='778' y='90' width='78' height='19' rx='9.5' fill='#ff8ac0' opacity='0.16'/>
+<rect x='778' y='90' width='78' height='19' rx='9.5' fill='none' stroke='#ff8ac0' stroke-width='1' opacity='0.45'/>
+<text x='817' y='103.7' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#ff8ac0' text-anchor='middle' font-weight='700'>9 dấu hiệu</text>
+<text x='622' y='132' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>văn bản và dữ liệu nằm trong tệp</text>
+<rect x='616' y='146' width='246' height='34' rx='7' fill='#ff8ac0' opacity='0.10'/>
+<text x='626' y='168' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='9.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.90'>ghi chú tống tiền · .onion · ví</text>
+<text x='24' y='226' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#e9eef8' text-anchor='start' font-weight='700'>Thang kết luận, theo khoảng điểm</text>
+<rect x='24' y='240' width='81.4' height='26' rx='6' fill='#4cd8c2' opacity='0.18'/>
+<rect x='24' y='240' width='81.4' height='26' rx='6' fill='none' stroke='#4cd8c2' stroke-width='1.2' opacity='0.45'/>
+<text x='64.7' y='257' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#4cd8c2' text-anchor='middle' font-weight='700'>0-9</text>
+<text x='64.7' y='282' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='middle' font-weight='400'>sạch</text>
+<rect x='108.4' y='240' width='165.7' height='26' rx='6' fill='#ffd479' opacity='0.18'/>
+<rect x='108.4' y='240' width='165.7' height='26' rx='6' fill='none' stroke='#ffd479' stroke-width='1.2' opacity='0.45'/>
+<text x='191.2' y='257' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#ffd479' text-anchor='middle' font-weight='700'>10-29</text>
+<text x='191.2' y='282' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='middle' font-weight='400'>cần lưu ý</text>
+<rect x='277.1' y='240' width='250.1' height='26' rx='6' fill='#ffc255' opacity='0.18'/>
+<rect x='277.1' y='240' width='250.1' height='26' rx='6' fill='none' stroke='#ffc255' stroke-width='1.2' opacity='0.45'/>
+<text x='402.1' y='257' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#ffc255' text-anchor='middle' font-weight='700'>30-59</text>
+<text x='402.1' y='282' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='middle' font-weight='400'>đáng ngờ</text>
+<rect x='530.1' y='240' width='207.9' height='26' rx='6' fill='#ff8585' opacity='0.18'/>
+<rect x='530.1' y='240' width='207.9' height='26' rx='6' fill='none' stroke='#ff8585' stroke-width='1.2' opacity='0.45'/>
+<text x='634.1' y='257' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#ff8585' text-anchor='middle' font-weight='700'>60-84</text>
+<text x='634.1' y='282' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='middle' font-weight='400'>nhiều khả năng</text>
+<rect x='741' y='240' width='132' height='26' rx='6' fill='#ff8585' opacity='0.18'/>
+<rect x='741' y='240' width='132' height='26' rx='6' fill='none' stroke='#ff8585' stroke-width='1.2' opacity='0.45'/>
+<text x='807' y='257' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#ff8585' text-anchor='middle' font-weight='700'>85-100</text>
+<text x='807' y='282' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='middle' font-weight='400'>rõ rệt</text>
+<text x='24' y='304' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Entropy cao và packer không bao giờ tự đẩy kết luận quá mức "cần lưu ý": một trình cài đặt bị pack cũng có đúng chân dung đó.</text>
+<rect x='24' y='322' width='418' height='100' rx='10' fill='#4cd8c2' opacity='0.11'/>
+<rect x='24' y='322' width='418' height='100' rx='10' fill='none' stroke='#4cd8c2' stroke-width='1.4' opacity='0.50'/>
+<rect x='24' y='322' width='4' height='100' rx='2' fill='#4cd8c2' opacity='0.95'/>
+<text x='44' y='348' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#4cd8c2' text-anchor='start' font-weight='700'>BỘ TỆP LÀNH</text>
+<text x='44' y='366' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>1108 tệp · 626 MB · 245 giây</text>
+<circle cx='48' cy='382' r='3' fill='#4cd8c2' opacity='0.90'/>
+<text x='60' y='386' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#4cd8c2' text-anchor='start' font-weight='700'>0 tệp từ mức "đáng ngờ" trở lên</text>
+<circle cx='48' cy='398' r='3' fill='#a3aec6' opacity='0.90'/>
+<text x='60' y='402' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400' opacity='0.92'>14 tệp "cần lưu ý" ( 1,26% )</text>
+<circle cx='48' cy='414' r='3' fill='#a3aec6' opacity='0.90'/>
+<text x='60' y='418' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400' opacity='0.92'>1094 tệp sạch ( 98,74% )</text>
+<rect x='458' y='322' width='418' height='100' rx='10' fill='#d3a4ff' opacity='0.11'/>
+<rect x='458' y='322' width='418' height='100' rx='10' fill='none' stroke='#d3a4ff' stroke-width='1.4' opacity='0.50'/>
+<rect x='458' y='322' width='4' height='100' rx='2' fill='#d3a4ff' opacity='0.95'/>
+<text x='478' y='348' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#d3a4ff' text-anchor='start' font-weight='700'>BỘ DỰNG TAY TRONG TEST</text>
+<text x='478' y='366' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>11 mẫu · 5 họ định dạng</text>
+<circle cx='482' cy='382' r='3' fill='#d3a4ff' opacity='0.90'/>
+<text x='494' y='386' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#d3a4ff' text-anchor='start' font-weight='700'>11/11 mẫu đạt "nhiều khả năng" trở lên</text>
+<circle cx='482' cy='398' r='3' fill='#a3aec6' opacity='0.90'/>
+<text x='494' y='402' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400' opacity='0.92'>10 mẫu "rõ rệt", 1 mẫu "nhiều khả năng"</text>
+<circle cx='482' cy='414' r='3' fill='#a3aec6' opacity='0.90'/>
+<text x='494' y='418' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400' opacity='0.92'>pe · elf · mach-o · zip · script</text>
+<text x='24' y='444' font-family='Cascadia Code, SF Mono, Consolas, monospace' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>python tools/measure_binary_corpus.py /usr/bin /usr/sbin /usr/lib/jvm /usr/local/go /usr/lib/python3.13</text>
+<text x='24' y='472' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Bộ tệp lành là phần mềm đã cài trên máy đo, mỗi máy một khác, nên con số chỉ có nghĩa khi anh em chạy lại đúng lệnh trên.</text>
+</svg>

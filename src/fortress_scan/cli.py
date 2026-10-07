@@ -68,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Mã thoát: 0 sạch, 1 có phát hiện từ mức --fail-on trở lên, 2 sai cách dùng, "
-            "3 lỗi nội bộ."
+            "3 lỗi nội bộ. Phân tích tệp thực thi tìm ransomware ( beta ): "
+            "fortress-scan binary <tệp hoặc thư mục>."
         ),
     )
     parser.add_argument(
@@ -240,6 +241,12 @@ def _prepare_streams() -> None:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     _prepare_streams()
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["binary"]:
+        # Lệnh con phân tích tệp thực thi ( beta ) có bộ cờ riêng.
+        from .binary.cli import main as binary_main
+
+        return binary_main(arguments[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
 

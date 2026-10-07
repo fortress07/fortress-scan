@@ -62,6 +62,13 @@ class Category(str, Enum):
     TEMP_FILE = "temp-file"
     DEBUG = "debug"
     PROTOTYPE = "prototype-pollution"
+    # Ba họ dưới đây không nói "mã này có thể bị khai thác" mà nói "đã có
+    # người vào đây rồi". Tách riêng vì người đọc xử lý hai thứ đó theo hai
+    # quy trình khác nhau: một cái vào hàng đợi sửa lỗi, một cái vào quy trình
+    # ứng cứu, và trộn chúng dưới cùng một nhãn làm mất đúng sự phân biệt đó.
+    WEBSHELL = "webshell"
+    PERSISTENCE = "persistence"
+    ACCESS_BACKDOOR = "access-backdoor"
 
 
 class StepKind(str, Enum):

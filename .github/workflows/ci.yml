@@ -50,6 +50,11 @@ jobs:
         run: python -m fortress_scan tests/samples/safe --no-config --fail-on info
       - name: Tu quet chinh no
         run: python -m fortress_scan src --fail-on low
+      # Chay tren ca ba he dieu hanh: chinh trinh thong dich la mot tep PE /
+      # ELF / Mach-O that, nen buoc nay la phep thu doc dinh dang that su.
+      - name: Phan tich tep thuc thi phai im lang voi mot binary lanh
+        shell: bash
+        run: python -m fortress_scan binary "$(python -c 'import sys; print(sys.executable)')" --quiet
 
   sarif:
     name: sarif
