@@ -154,6 +154,13 @@ _HANDLER_DIRECTIVES: Tuple[str, ...] = (
 )
 
 
+# Ba chuỗi dưới đây dùng lại ở nhiều nhánh của cùng một phép kiểm, nên đặt
+# tên thay vì viết lại từng chỗ.
+_AUTORUN_EVIDENCE = "tệp là %s nên dòng này chạy mà không ai gọi"
+_FORCED_COMMAND = "command="
+_FORCED_ENVIRONMENT = "environment="
+
+
 def kind_of(relative_path: str) -> Optional[str]:
     """Loại hiện vật, suy từ tên và vị trí. None nghĩa là không nhận ra."""
     normalized = relative_path.replace("\\", "/")
@@ -196,8 +203,8 @@ def _is_comment(stripped: str, kind: str) -> bool:
     if not stripped:
         return True
     if kind == WEB_CONFIG:
-        return stripped.startswith("#") or stripped.startswith("<!--")
-    return stripped.startswith("#") or stripped.startswith(";")
+        return stripped.startswith(("#", "<!--"))
+    return stripped.startswith(("#", ";"))
 
 
 def _command_of(stripped: str, kind: str) -> str:
@@ -280,7 +287,7 @@ def _check_autostart(
                 builder.step(StepKind.SINK, line_number, column, "đưa cho shell qua %s" % piped.strip()),
             ),
             evidence=(
-                "tệp là %s nên dòng này chạy mà không ai gọi" % kind,
+                _AUTORUN_EVIDENCE % kind,
                 "lệnh tải: %r" % downloader.strip(),
                 "chuyển cho trình thông dịch: %r" % piped.strip(),
             ),
@@ -304,7 +311,7 @@ def _check_autostart(
                 builder.step(StepKind.SINK, line_number, column, "chạy từ thư mục ai cũng ghi được"),
             ),
             evidence=(
-                "tệp là %s nên dòng này chạy mà không ai gọi" % kind,
+                _AUTORUN_EVIDENCE % kind,
                 "đường dẫn thực thi nằm trong %r" % writable,
             ),
             tags=("ir", "persistence", "compromise"),
@@ -328,7 +335,7 @@ def _check_autostart(
                     builder.step(StepKind.SINK, line_number, column, "thực thi kết quả"),
                 ),
                 evidence=(
-                    "tệp là %s nên dòng này chạy mà không ai gọi" % kind,
+                    _AUTORUN_EVIDENCE % kind,
                     "lớp giải mã: %r" % decoder,
                 ),
                 tags=("ir", "persistence", "compromise"),
@@ -379,14 +386,14 @@ def _check_authorized_key(
     line_number: int, stripped: str, builder: FindingBuilder, reporter: _Reporter
 ) -> None:
     lowered = stripped.lower()
-    if "command=" in lowered:
+    if _FORCED_COMMAND in lowered:
         forced = any(item in lowered for item in _SHELL_IN_COMMAND)
         if forced and reporter.allow("FSB-IR-014"):
             builder.add(
                 rule_id="FSB-IR-014",
                 line=line_number,
-                column=lowered.find("command="),
-                symbol="command=",
+                column=lowered.find(_FORCED_COMMAND),
+                symbol=_FORCED_COMMAND,
                 message=(
                     "khoá này mang lệnh cưỡng chế chạy một trình thông dịch, nên ai "
                     "giữ khoá riêng tương ứng có shell ngay khi kết nối, bất kể cấu "
@@ -399,12 +406,12 @@ def _check_authorized_key(
                 tags=("ir", "backdoor", "compromise"),
             )
             return
-    if "environment=" in lowered and reporter.allow("FSB-IR-014"):
+    if _FORCED_ENVIRONMENT in lowered and reporter.allow("FSB-IR-014"):
         builder.add(
             rule_id="FSB-IR-014",
             line=line_number,
-            column=lowered.find("environment="),
-            symbol="environment=",
+            column=lowered.find(_FORCED_ENVIRONMENT),
+            symbol=_FORCED_ENVIRONMENT,
             message=(
                 "khoá này đặt biến môi trường cho phiên đăng nhập; kèm LD_PRELOAD "
                 "hoặc PATH thì nó đổi được mã chạy trong phiên mà không sửa tệp nào"
