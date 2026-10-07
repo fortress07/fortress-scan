@@ -728,6 +728,255 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
             "security-hardening-for-github-actions#using-third-party-actions",
         ),
     ),
+    # --- Truy vết xâm nhập ------------------------------------------------
+    #
+    # Họ FSB-IR trả lời một câu khác mọi rule phía trên. Chúng nói "mã này có
+    # thể bị khai thác"; họ này nói "đã có người khai thác xong và để lại cái
+    # này". Khác biệt đó không phải chuyện cách gọi tên: một phát hiện FSB-IR
+    # không vào hàng đợi sửa lỗi của sprint sau mà vào quy trình ứng cứu ngay
+    # hôm nay, vì nếu nó đúng thì hệ thống đang nằm trong tay người khác.
+    #
+    # Mức độ nghiêm trọng vì vậy được đặt theo "kẻ tấn công ĐANG có gì", chứ
+    # không theo "kẻ tấn công có thể làm gì nếu tìm được đường vào".
+    RuleSpec(
+        id="FSB-IR-001",
+        title="Webshell: tệp nhận lệnh từ request rồi thực thi",
+        category=Category.WEBSHELL,
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-506", "CWE-912"),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Cả tệp này hợp thành một đường điều khiển từ xa: nó đọc dữ liệu request, và dữ liệu "
+            "đó tới được nơi thực thi, trong một tệp vừa nhỏ vừa không có khung dự án quanh nó -- "
+            "hoặc nằm trong thư mục tải lên, hoặc tự giải mã nội dung trước khi chạy. Đây không "
+            "phải một lỗi lập trình mà là một sự việc đã xảy ra: có người ghi được tệp vào cây mã."
+        ),
+        remediation=(
+            "Đừng vá tệp này, hãy coi nó là tang vật. Ghi lại nội dung và thời điểm sửa đổi, tìm "
+            "trong log truy cập xem nó được gọi từ đâu và từ khi nào, rồi mới xóa. Sau đó mới là "
+            "phần quan trọng hơn: tìm đường mà nó được ghi vào ( lỗ hổng tải tệp, thư mục ghi "
+            "được, tài khoản quản trị bị chiếm ) và bịt đường đó, vì tệp bị xóa sẽ quay lại nếu "
+            "đường vào còn mở. Cuối cùng chặn thực thi mã trong mọi thư mục tải lên."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/506.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-002",
+        title="Dropper: nội dung bị làm rối được giải mã rồi chạy ngay",
+        category=Category.WEBSHELL,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-506",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Tệp giải mã một khối nội dung rồi thực thi kết quả, mà không đọc đầu vào nào từ bên "
+            "ngoài. Đó là hình dạng của tầng chạy trước: lệnh thật không nằm trong tệp, nên không "
+            "ai đọc tệp mà biết nó làm gì, và bộ dò theo từ khoá cũng không thấy gì để dò."
+        ),
+        remediation=(
+            "Giải mã khối nội dung đó bằng tay trong môi trường cách ly để biết nó làm gì trước "
+            "khi xóa -- chính nó nói ra đường vào và chỗ kẻ tấn công còn đang giữ. Nếu đây là mã "
+            "của chính dự án ( bộ nén, bộ đóng gói ) thì giữ nguyên và đánh dấu bằng "
+            "`fortress-scan: ignore` kèm lý do, để lần ứng cứu sau không ai phải điều tra lại."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/506.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-003",
+        title="Cửa hậu có cổng mật khẩu cứng ngay trước nơi thực thi",
+        category=Category.WEBSHELL,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-912", "CWE-798"),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Một phép so với hằng băm cứng đứng ngay trước nơi thực thi, trong một tệp nhỏ không "
+            "có khung dự án. Cổng đó không bảo vệ ứng dụng mà bảo vệ chính cửa hậu: người cắm nó "
+            "không muốn người khác dùng được đường vào của mình."
+        ),
+        remediation=(
+            "Xử lý như FSB-IR-001: ghi lại tang vật, truy đường vào, rồi xóa. Chuỗi băm trong tệp "
+            "là một đầu mối dùng được -- tra nó trong các tập mật khẩu đã công bố thường cho ra "
+            "ngay bộ công cụ mà kẻ tấn công dùng, và từ đó biết họ còn cắm gì ở nơi khác."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/912.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-010",
+        title="Cơ chế tự chạy tải mã từ xa về rồi đưa thẳng cho shell",
+        category=Category.PERSISTENCE,
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-494", "CWE-506"),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Một lịch chạy, một unit của systemd, một tệp rc hoặc một script khởi động tải nội "
+            "dung từ xa về và chuyển thẳng cho trình thông dịch. Nội dung chạy không được kiểm "
+            "bằng gì cả, và ở đầu bên kia nó đổi được bất cứ lúc nào -- nên quyền trên máy này "
+            "thuộc về người giữ địa chỉ đó, không thuộc về người viết dòng này."
+        ),
+        remediation=(
+            "Gỡ dòng này khỏi cơ chế tự chạy và kiểm tra xem nó đã chạy bao nhiêu lần. Nếu đây là "
+            "bước cài đặt do chính nhóm viết, hãy tải về trước thành một tệp có băm được ghim, "
+            "kiểm băm, rồi mới chạy. Trong một ca ứng cứu thì địa chỉ ở dòng này là đầu mối quan "
+            "trọng nhất của toàn bộ hiện trường."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/494.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-011",
+        title="Cơ chế tự chạy thực thi thứ nằm trong thư mục ai cũng ghi được",
+        category=Category.PERSISTENCE,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-426", "CWE-732"),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Đường dẫn được thực thi nằm trong /tmp, /var/tmp, /dev/shm hoặc một thư mục tạm "
+            "tương đương. Nội dung ở đó bất cứ tiến trình nào trên máy cũng thay được, nên ai ghi "
+            "được một tệp vào đấy sẽ chạy được mã ở lần khởi động kế tiếp, không cần lỗ hổng nào "
+            "khác. Một cấu hình do người quản trị viết gần như không bao giờ có hình dạng này."
+        ),
+        remediation=(
+            "Chuyển thứ cần chạy sang thư mục chỉ root ghi được ( /usr/local/bin, /opt ) rồi trỏ "
+            "cơ chế tự chạy vào đó. Nếu không nhận ra dòng này là của mình thì coi như dấu vết "
+            "xâm nhập: xem tệp đích còn tồn tại không, và nó được tạo lúc nào."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/426.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-012",
+        title="Cơ chế tự chạy giải mã một khối nội dung rồi thực thi",
+        category=Category.PERSISTENCE,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-506",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Lệnh thật được giấu sau một lớp base64 hoặc một lớp nén, rồi kết quả giải mã được "
+            "đưa cho shell. Người quản trị đọc tệp cấu hình sẽ không thấy lệnh nào đáng ngờ, và "
+            "đó chính là mục đích của lớp mã hóa ở đây -- mã cấu hình hợp pháp không cần che."
+        ),
+        remediation=(
+            "Giải mã khối đó bằng tay để biết nó làm gì, ghi lại, rồi gỡ dòng này. Nếu là bước "
+            "cài đặt của chính nhóm thì viết lệnh ra dạng đọc được: một cấu hình mà người trực ca "
+            "không đọc nổi là một cấu hình không ai rà soát được."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/506.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-013",
+        title="Thư viện được nạp trước vào mọi tiến trình",
+        category=Category.PERSISTENCE,
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-426",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "`ld.so.preload` nạp thư viện được nêu vào mọi tiến trình chạy trên máy, kể cả tiến "
+            "trình của root, và thư viện đó ghi đè được cả hàm thư viện chuẩn: `open`, `readdir`, "
+            "`execve`. Đây là chỗ rootkit vùng người dùng cắm vào để ẩn tệp và ẩn tiến trình -- "
+            "nên từ lúc này, kết quả của mọi công cụ chạy trên máy đó không còn đáng tin. Một hệ "
+            "thống bình thường để tệp này rỗng hoặc không có nó. Cùng cơ chế với LD_PRELOAD đặt "
+            "trong tệp rc, chỉ khác là phạm vi rộng hơn: toàn máy thay vì một phiên đăng nhập."
+        ),
+        remediation=(
+            "Đừng điều tra tiếp trên chính máy đó. Gắn đĩa của nó vào một hệ thống sạch rồi mới "
+            "đọc, vì mọi lệnh chạy trên máy nhiễm đều đi qua thư viện này. Ghi lại tệp .so được "
+            "nêu làm tang vật trước khi gỡ, và coi mọi tài khoản từng đăng nhập sau thời điểm tệp "
+            "được tạo là đã mất mật khẩu."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/426.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-014",
+        title="Khóa SSH mang lệnh cưỡng chế hoặc biến môi trường",
+        category=Category.ACCESS_BACKDOOR,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-912",),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Một mục trong `authorized_keys` mang `command=` chạy trình thông dịch, hoặc mang "
+            "`environment=`. Dạng thứ nhất cho người giữ khóa riêng một shell ngay khi kết nối, "
+            "bất kể tài khoản được cấu hình thế nào; dạng thứ hai đổi được biến môi trường của "
+            "phiên, và kèm LD_PRELOAD thì nó đổi luôn mã chạy trong phiên đó."
+        ),
+        remediation=(
+            "Đối chiếu từng khóa trong tệp với danh sách khóa mà nhóm thực sự cấp, theo phần chú "
+            "thích ở cuối mỗi dòng và theo dấu vân tay khóa. Gỡ mọi khóa không nhận ra, rồi xem "
+            "log đăng nhập xem khóa đó đã được dùng chưa. Khóa triển khai hợp pháp thì giữ "
+            "`command=` nhưng trỏ vào đúng một lệnh, kèm `no-pty` và `restrict`."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/912.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-015",
+        title="Tài khoản thứ hai có UID 0",
+        category=Category.ACCESS_BACKDOOR,
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-269", "CWE-912"),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Hệ thống quyết định quyền theo UID chứ không theo tên, nên một tài khoản UID 0 mang "
+            "tên khác là root dưới một cái tên khác. Đây là cách một cửa hậu sống qua việc đổi "
+            "mật khẩu root và qua việc khóa tài khoản root: người ứng cứu xử lý root rồi tưởng "
+            "đã xong."
+        ),
+        remediation=(
+            "Xác nhận với nhóm vận hành rằng tài khoản này không phải của họ, rồi khóa nó và xóa "
+            "khỏi `passwd`. Xem thời điểm tạo và các tệp mà nó sở hữu để khoanh vùng thời gian "
+            "kẻ tấn công đã ở trong hệ thống. Trên máy thật thì root là tài khoản UID 0 duy nhất; "
+            "mọi ngoại lệ phải có lý do viết ra được."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/269.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-016",
+        title="Quyền sudo mọi lệnh không cần mật khẩu",
+        category=Category.ACCESS_BACKDOOR,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-250", "CWE-269"),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Quy tắc cho chạy mọi lệnh với quyền root mà không cần mật khẩu. Ai đã vào được tài "
+            "khoản đó -- qua một webshell, một khóa SSH bị thêm, một mật khẩu bị lộ -- là lên root "
+            "ngay, không cần tới lỗ hổng leo thang nào. Độ tin cậy ở mức trung bình vì trong "
+            "container và trên máy CI đây đôi khi là cấu hình có chủ ý."
+        ),
+        remediation=(
+            "Thu hẹp còn đúng những lệnh mà vai trò đó cần, viết bằng đường dẫn tuyệt đối, và bỏ "
+            "`NOPASSWD` ở những chỗ có người thật ngồi gõ. Nếu quy tắc này không phải của nhóm "
+            "thì nó là một cửa hậu leo thang quyền: gỡ ngay và truy xem nó được thêm lúc nào."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/250.html",),
+    ),
+    RuleSpec(
+        id="FSB-IR-017",
+        title="Cấu hình web bật bộ xử lý mã cho thư mục tải lên",
+        category=Category.WEBSHELL,
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-434",),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Một chỉ thị `AddHandler`, `SetHandler`, `AddType` hoặc `Options +ExecCGI` bật bộ xử "
+            "lý mã cho thư mục chứa nó. Nếu đó là thư mục tải lên thì mọi tệp người dùng đẩy lên "
+            "được đều thành mã chạy trên máy chủ, và việc kiểm tra phần mở rộng lúc tải lên không "
+            "còn giá trị gì. Chính kẻ tấn công cũng hay tự ghi tệp `.htaccess` này vào để biến "
+            "một chỗ tải tệp vô hại thành đường thực thi mã."
+        ),
+        remediation=(
+            "Nếu tệp cấu hình này không phải của nhóm thì xóa và coi như dấu vết xâm nhập. Nếu là "
+            "của nhóm thì tắt hẳn thực thi trong thư mục tải lên: `php_admin_flag engine off` kèm "
+            "`SetHandler None`, hoặc tốt hơn là đưa thư mục tải lên ra ngoài gốc tài liệu web và "
+            "phục vụ tệp qua một handler của ứng dụng."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/434.html",),
+    ),
 )
 
 RULES: Dict[str, RuleSpec] = {rule.id: rule for rule in _RULE_LIST}

@@ -22,6 +22,13 @@ MANIFEST = "manifest"
 # vào TRƯỚC khi shell nhìn thấy. Đó là một ngôn ngữ riêng chứ không phải YAML
 # vô hại, nên nó có bộ phân tích riêng.
 WORKFLOW = "workflow"
+# Tệp mà một ca ứng cứu phải đọc nhưng không lập trình viên nào coi là mã
+# nguồn: crontab, unit của systemd, tệp rc của shell, authorized_keys,
+# ld.so.preload, cấu hình máy chủ web, sudoers. Chúng nằm ngoài mọi bảng phần
+# mở rộng nên trước bản này bộ duyệt cây không hề NHÌN THẤY chúng -- mà đó
+# đúng là nơi kẻ tấn công cắm cơ chế trụ lại, vì nó chạy mà không cần sửa một
+# dòng mã nào của dự án.
+IR_ARTIFACT = "ir-artifact"
 
 _EXTENSION_MAP: Dict[str, str] = {
     ".py": PYTHON,
@@ -72,6 +79,11 @@ _EXTENSION_MAP: Dict[str, str] = {
     ".t": PERL,
     ".cgi": PERL,
     ".lua": LUA,
+    # Unit của systemd. Phần mở rộng CUỐI mới quyết định, nên `foo.service.ts`
+    # của Angular vẫn là TypeScript và không rơi vào đây.
+    ".service": IR_ARTIFACT,
+    ".timer": IR_ARTIFACT,
+    ".socket": IR_ARTIFACT,
 }
 
 _FILENAME_MAP: Dict[str, str] = {
@@ -81,7 +93,51 @@ _FILENAME_MAP: Dict[str, str] = {
     "Rakefile": RUBY,
     "Dockerfile": SHELL,
     "Makefile": SHELL,
+    # Tệp hiện vật ứng cứu. Những cái bắt đầu bằng dấu chấm phải có mặt ở
+    # ĐÂY chứ không chỉ trong bộ dò: `is_scannable_name()` loại mọi tên ẩn
+    # trừ tên nằm trong bảng này, nên thiếu một dòng là tệp đó không bao giờ
+    # được liệt kê, và lỗ hổng biến mất trong im lặng.
+    ".bashrc": IR_ARTIFACT,
+    ".bash_profile": IR_ARTIFACT,
+    ".bash_login": IR_ARTIFACT,
+    ".bash_logout": IR_ARTIFACT,
+    ".profile": IR_ARTIFACT,
+    ".zshrc": IR_ARTIFACT,
+    ".zprofile": IR_ARTIFACT,
+    ".kshrc": IR_ARTIFACT,
+    ".htaccess": IR_ARTIFACT,
+    "authorized_keys": IR_ARTIFACT,
+    "authorized_keys2": IR_ARTIFACT,
+    "crontab": IR_ARTIFACT,
+    "ld.so.preload": IR_ARTIFACT,
+    "sudoers": IR_ARTIFACT,
+    "passwd": IR_ARTIFACT,
+    "shadow": IR_ARTIFACT,
+    "nginx.conf": IR_ARTIFACT,
+    "httpd.conf": IR_ARTIFACT,
+    "apache2.conf": IR_ARTIFACT,
+    "web.config": IR_ARTIFACT,
+    "rc.local": IR_ARTIFACT,
 }
+
+# Thư mục mà nội dung bên trong là hiện vật ứng cứu bất kể tên tệp. `cron.d`
+# chứa tệp không có phần mở rộng, `profile.d` chứa .sh, `sites-enabled` chứa
+# .conf -- không có bảng tên nào bắt được cả ba, chỉ vị trí mới bắt được.
+_IR_DIRECTORIES: Tuple[str, ...] = (
+    "cron.d",
+    "cron.daily",
+    "cron.hourly",
+    "cron.weekly",
+    "cron.monthly",
+    "sudoers.d",
+    "profile.d",
+    "sites-enabled",
+    "sites-available",
+    "init.d",
+    "rc.d",
+    "systemd",
+    "authorized_keys.d",
+)
 
 _SHEBANG_MAP: Tuple[Tuple[str, str], ...] = (
     ("python", PYTHON),
@@ -119,6 +175,16 @@ def language_from_relative(relative_path: str) -> Optional[str]:
     trả None nghĩa là "không biết", và người gọi rơi về nhận dạng theo tên.
     """
     parts = [part for part in relative_path.replace("\\", "/").split("/") if part]
+    # Hiện vật ứng cứu xét trước: một tệp trong `cron.d` là lịch chạy lệnh dù
+    # tên nó không có phần mở rộng nào, và không bảng tên nào bắt được điều đó.
+    #
+    # Nhưng vị trí chỉ được quyết khi TÊN không nói gì: `scripts/init.d/x.py`
+    # vẫn phải là Python. Thiếu phép nhường này thì một thư mục trùng tên sẽ
+    # âm thầm gỡ cả cây con khỏi phần dò injection.
+    if len(parts) >= 2 and language_from_name(parts[-1]) is None:
+        for part in parts[:-1]:
+            if part.lower() in _IR_DIRECTORIES:
+                return IR_ARTIFACT
     if len(parts) < 3:
         return None
     if not parts[-1].lower().endswith(_WORKFLOW_SUFFIXES):
@@ -205,4 +271,5 @@ def display_name(language: str) -> str:
         LUA: "Lua",
         MANIFEST: "Package manifest",
         WORKFLOW: "CI workflow",
+        IR_ARTIFACT: "Hiện vật ứng cứu",
     }.get(language, language)
