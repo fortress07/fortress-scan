@@ -448,6 +448,16 @@ TRIGGERS.update(
             PYTHON,
             "def login(response, token):\n    response.set_cookie('session_token', token)\n",
         ),
+        "FSB-ACCESS-001": (
+            PYTHON,
+            "from flask import request\n\n\ndef admin_panel():\n"
+            "    if request.args.get('role') == 'admin':\n        return render_admin()\n"
+            "    return abort(403)\n",
+        ),
+        "FSB-MASS-001": (
+            JAVASCRIPT,
+            "app.post('/u', (req, res) => {\n  User.create(req.body);\n  res.end();\n});\n",
+        ),
     }
 )
 
@@ -491,6 +501,17 @@ SAFE_VARIANTS.update(
         "FSB-COOKIE-001": (
             PYTHON,
             "def login(response, token):\n    response.set_cookie('session_token', token, httponly=True)\n",
+        ),
+        # Cùng khoá 'role', nhưng chỉ dùng để LỌC danh sách chứ không quyết định quyền.
+        "FSB-ACCESS-001": (
+            PYTHON,
+            "from flask import request\n\n\ndef listing():\n"
+            "    return render(users=find_users(role=request.args.get('role')))\n",
+        ),
+        "FSB-MASS-001": (
+            JAVASCRIPT,
+            "app.post('/u', (req, res) => {\n  User.create({ name: req.body.name });\n"
+            "  res.end();\n});\n",
         ),
     }
 )

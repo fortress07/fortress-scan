@@ -132,6 +132,37 @@ def _statement_tokens(scan: "_Scan", index: int, limit: int = 80, stop_at_comma:
     return collected
 
 
+# Từ khoá đứng ngay trước tên hàm thì nó là lời gọi, không phải kiểu trả về.
+_NOT_A_RETURN_TYPE = frozenset(
+    {
+        "return",
+        "new",
+        "throw",
+        "await",
+        "yield",
+        "else",
+        "case",
+        "defer",
+        "go",
+        "then",
+        "do",
+        "if",
+        "elif",
+        "elsif",
+        "unless",
+        "while",
+        "until",
+        "switch",
+        "when",
+        "and",
+        "or",
+        "not",
+        "in",
+        "assert",
+    }
+)
+
+
 def _is_declaration(scan: "_Scan", call: "_Call") -> bool:
     """`public ObjectMapper enableDefaultTyping() {` là khai báo, không phải lời gọi."""
     flat = scan.flat
@@ -146,9 +177,7 @@ def _is_declaration(scan: "_Scan", call: "_Call") -> bool:
     previous = flat[call.index - 1] if call.index else None
     if previous is not None and previous.kind == IDENT and previous.line == call.anchor.line:
         # `ObjectMapper enableDefaultTyping(`: kiểu trả về đứng ngay trước tên.
-        return previous.text not in (
-            "return", "new", "throw", "await", "yield", "else", "case", "defer", "go", "then", "do"
-        )
+        return previous.text not in _NOT_A_RETURN_TYPE
     return False
 
 

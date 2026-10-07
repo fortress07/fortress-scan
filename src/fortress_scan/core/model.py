@@ -56,6 +56,8 @@ class Category(str, Enum):
     JWT = "jwt"
     CORS = "cors"
     COOKIE = "cookie"
+    ACCESS_CONTROL = "access-control"
+    MASS_ASSIGNMENT = "mass-assignment"
 
 
 class StepKind(str, Enum):

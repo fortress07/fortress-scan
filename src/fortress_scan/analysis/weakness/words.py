@@ -678,6 +678,98 @@ def matches_any_origin(pattern: str) -> Optional[str]:
     return "mẫu %r khớp mọi origin" % pattern
 
 
+# Tên khoá được chuẩn hoá về một dạng: `is_admin`, `isAdmin`, `IS-ADMIN` đều
+# thành `isadmin`, để một bảng nhỏ phủ được mọi lối viết.
+_NOT_ALNUM = re.compile(r"[^a-z0-9]")
+
+
+def normalized_key(key: str) -> str:
+    return _NOT_ALNUM.sub("", key.lower())
+
+
+def header_key_variants(key: str) -> FrozenSet[str]:
+    """`X-Admin`, `HTTP_X_ADMIN` -- bỏ tiền tố quy ước của header rồi mới so."""
+    base = normalized_key(key)
+    found = {base}
+    current = base
+    for _ in range(2):
+        for prefix in ("http", "x"):
+            if current.startswith(prefix) and len(current) > len(prefix):
+                current = current[len(prefix) :]
+                found.add(current)
+                break
+    return frozenset(found)
+
+
+# Khoá dạng cờ đúng / sai: chỉ cần có mặt là đã đủ để quyết định.
+BOOLEAN_PRIVILEGE_KEYS = frozenset(
+    {
+        "admin",
+        "isadmin",
+        "adminflag",
+        "superuser",
+        "issuperuser",
+        "superadmin",
+        "issuperadmin",
+        "staff",
+        "isstaff",
+        "isroot",
+        "ismoderator",
+        "sudo",
+        "loggedin",
+        "isloggedin",
+        "authenticated",
+        "isauthenticated",
+        "isauth",
+    }
+)
+# Khoá mang quyền nhưng là một giá trị, nên phải đem so mới thành quyết định.
+PRIVILEGE_KEYS = BOOLEAN_PRIVILEGE_KEYS | frozenset(
+    {
+        "role",
+        "roles",
+        "userrole",
+        "usertype",
+        "accountrole",
+        "privilege",
+        "privileges",
+        "permission",
+        "permissions",
+        "accesslevel",
+        "userlevel",
+        "authlevel",
+        "grouprole",
+    }
+)
+# Giá trị cho thấy phép so là một quyết định cấp quyền, không phải phép lọc.
+PRIVILEGE_VALUES = frozenset(
+    {
+        "admin",
+        "admins",
+        "administrator",
+        "root",
+        "superuser",
+        "superadmin",
+        "sysadmin",
+        "staff",
+        "moderator",
+        "owner",
+        "true",
+        "yes",
+        "1",
+    }
+)
+
+# Model có bảng người dùng thường có luôn cột quyết định quyền.
+_ACCOUNT_MODEL_WORDS = frozenset(
+    {"user", "users", "account", "accounts", "member", "members", "profile", "customer", "admin"}
+)
+
+
+def names_an_account_model(name: str) -> bool:
+    return any(word in _ACCOUNT_MODEL_WORDS for word in split_words(name))
+
+
 # Cookie mang phiên đăng nhập. Cookie chống CSRF thì ngược lại: JavaScript của
 # chính trang PHẢI đọc được nó để gắn vào header, nên thiếu HttpOnly là đúng.
 _SESSION_COOKIE_WORDS = frozenset(

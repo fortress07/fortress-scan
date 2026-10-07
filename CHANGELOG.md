@@ -50,6 +50,26 @@ PEM trong `security/redaction.py` giờ che cả phần thân base64, không ch�
   `allowedOrigins("*")`, ASP.NET `AllowAnyOrigin()`, flask-cors `send_wildcard=True`, cả ba khi đi
   kèm credentials ) **không** bị báo, vì chúng không chạy được hoặc trình duyệt tự từ chối.
 
+### Kiểm soát truy cập và mass assignment
+
+- `FSB-ACCESS-001`: quyền được quyết định bằng một trường mà người gửi tự đặt được -- query, form,
+  body, cookie hay header. Khoá phải nói về quyền ( `role`, `is_admin`, `permissions`,
+  `user_type` ), và giá trị phải được **so với một giá trị quyền** trong một điều kiện hay một
+  `return`, hoặc dùng thẳng làm điều kiện khi khoá là cờ đúng / sai. Python trên AST; JS / TS,
+  PHP, Ruby, Java, Go, C# và phần còn lại trên token, gồm cả hậu tố `if` của Ruby và
+  `r.URL.Query().Get(...)` của Go. Header hạ xuống mức trung bình, vì gateway phía trước có thể đã
+  xoá nó.
+- `FSB-MASS-001`: cả gói dữ liệu người gửi đi thẳng vào đối tượng được lưu -- `**request.POST`,
+  `User.create(req.body)`, `Object.assign(user, req.body)`, `$request->all()`, `params.permit!`,
+  hoặc `permit(...)` có chính trường quyền trong danh sách.
+- Hai kiểm tra **chỉ dựa vào cấu hình** đã bị bỏ sau khi đo trên repo thật: `$guarded = []` của
+  Laravel và `fields = "__all__"` của Django nằm hợp lệ trong chính mã framework ( `Pivot.php`,
+  `DatabaseNotification.php`, `UserChangeForm` ), nên phải thấy request ở ngay chỗ ghi thì mới báo.
+- Báo nhầm tìm ra trên mastodon và đã khoá lại bằng kiểm tra hồi quy: `permit(:page,
+  *Admin::ActionLogFilter::KEYS)` ( chữ `Admin` là tên mô đun, không phải cột ), và
+  `translated_params[:role_ids] = ... if params[:permissions] == 'staff'` ( bộ lọc truy vấn của
+  admin API, không phải phép cấp quyền ).
+
 ### Ngữ cảnh tệp
 
 - Tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như `RegistrationUITest.java`, `APITests.java`.

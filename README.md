@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/49-rule-e05d44?style=flat-square)](#-49-rule-trên-25-họ-lỗ-hổng)
-[![families](https://img.shields.io/badge/25-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-49-rule-trên-25-họ-lỗ-hổng)
+[![rules](https://img.shields.io/badge/51-rule-e05d44?style=flat-square)](#-51-rule-trên-27-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/27-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-51-rule-trên-27-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1614-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1662-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>49</b><br/><sub>rule</sub></td>
+<td align="center"><b>51</b><br/><sub>rule</sub></td>
 <td align="center"><b>25</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1614</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>1662</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="49 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="51 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,18 +90,18 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="49 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="51 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
 | :--- | :--- | :--- |
-| 🟣 **A01 Broken Access Control** | `FSB-PATH-001` · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
+| 🟣 **A01 Broken Access Control** | `FSB-ACCESS-001` ( quyền quyết định bằng trường người gửi tự đặt ) · `FSB-PATH-001` · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
 | 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) · `FSB-CORS-001` ( CORS mở kèm credentials ) · `FSB-COOKIE-001` ( cookie phiên thiếu HttpOnly ) | A05:2021 |
 | 🟢 **A03 Software Supply Chain Failures** | `FSB-SUP-001` · `FSB-SUP-002` · `FSB-CI-003` · `FSB-CI-004` | A08:2021 |
 | 🟡 **A04 Cryptographic Failures** | `FSB-CRYPTO-001` … `FSB-CRYPTO-008`: hàm băm và thuật toán đã bị phá, ECB, IV/nonce/muối hằng, khoá viết cứng, PRNG đoán được, khoá RSA ngắn | A02:2021 |
 | 🔴 **A05 Injection** | 20 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression | A03:2021 |
 | 💗 **A07 Authentication Failures** | `FSB-TLS-001` ( tắt xác minh chứng chỉ ) · `FSB-SECRET-001` ( mật khẩu, token viết cứng ) · `FSB-JWT-001` ( JWT không xác minh chữ ký ) | A07:2021 |
-| 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` | A08:2021 |
+| 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` · `FSB-MASS-001` ( mass assignment ) | A08:2021 |
 
 > [!IMPORTANT]
 > **Ba chỗ bản 2025 xếp khác hẳn bản 2021**, và đó chính là lý do phải cập nhật:
@@ -144,7 +144,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 49 rule trên 25 họ lỗ hổng
+## 🔍 51 rule trên 27 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -178,6 +178,8 @@ nên bảng này không thể lệch khỏi code.
 | **JWT không xác minh** | 🟠 `FSB-JWT-001` | `jwt.decode(t, options={"verify_signature": False})`, `algorithms: ['none']` |
 | **CORS mở kèm credentials** | 🟡 `FSB-CORS-001` | `CORS(app, supports_credentials=True)`, `cors({ origin: true, credentials: true })` |
 | **Cookie phiên thiếu HttpOnly** | 🔵 `FSB-COOKIE-001` | `res.cookie('session', t)`, `httponly=False` |
+| **Quyền quyết định bằng dữ liệu người gửi** | 🟠 `FSB-ACCESS-001` | `if request.args.get('role') == 'admin'`, `$_GET['role'] == 'admin'` |
+| **Mass assignment** | 🟡 `FSB-MASS-001` | `User.objects.create(**request.POST)`, `params.permit!`, `User.create(req.body)` |
 
 <sub>🔴 critical · 🟠 high · 🟡 medium · 🔵 low</sub>
 
@@ -230,9 +232,21 @@ PHP 8.3 ), chứ không suy từ tài liệu:
 | `FSB-CORS-001` | credentials được bật **và** origin không bị giới hạn: flask-cors `supports_credentials=True` ( mặc định origins là `*` ), Starlette `allow_origins=['*']` hay `allow_origin_regex='.*'` kèm `allow_credentials=True`, `CORS_ALLOW_ALL_ORIGINS` kèm `CORS_ALLOW_CREDENTIALS`, `cors({ origin: true, credentials: true })` kể cả khi origin là regex khớp mọi thứ hay một callback luôn trả `true`, Spring `allowedOriginPatterns("*")` kèm `allowCredentials(true)`, ASP.NET `SetIsOriginAllowed(_ => true)` kèm `AllowCredentials()`, Go `AllowOriginFunc` luôn trả `true` kèm `AllowCredentials: true`, hoặc tự ghi `Access-Control-Allow-Origin` từ header `Origin` | `Access-Control-Allow-Origin: *` -- **trình duyệt tự bỏ** phản hồi khi request có credentials, nên `cors({ origin: '*', credentials: true })` không phải lỗ hổng này; tổ hợp mà thư viện **tự ném lỗi** ( Spring `allowedOrigins("*")`, ASP.NET `AllowAnyOrigin()`, flask-cors `send_wildcard=True`, cả ba khi đi kèm credentials ); danh sách origin đóng; mẫu có neo và có tên miền thật như `^https://.*\.example\.com$`; hàm quyết định origin có kiểm tra thật; chỗ ghi header nằm sau một phép so với allowlist |
 | `FSB-COOKIE-001` | cookie **mang phiên** ( tên chứa session, token, jwt, auth, sid, remember ) mà `HttpOnly` bị tắt thẳng, hoặc vắng mặt ở nơi mặc định của framework là tắt -- đã kiểm trực tiếp: Flask và Django `set_cookie`, express `res.cookie`, PHP `setcookie` và struct `http.Cookie` của Go đều không có HttpOnly khi không truyền gì | cookie `csrf` / `xsrf`, vì JavaScript của chính trang phải đọc được chúng; express-session, nơi mặc định đã BẬT HttpOnly nên chỉ bắt lúc bị tắt thẳng; cờ được đặt ở dòng sau ( `c.HttpOnly = true` ); biến cục bộ trùng tên như `$httponly = false;` mà dòng đó chưa cho biết sẽ đi đâu |
 
+### 🔑 Quyền quyết định bằng dữ liệu người gửi, và mass assignment
+
+Hai họ này khác mọi họ còn lại ở chỗ **tên khoá mới là thứ mang nghĩa**, không phải lời gọi.
+`request.args.get("role")` và `request.args.get("page")` là **cùng một lời gọi**, chỉ khác một
+chuỗi, mà một bên là leo thang quyền còn bên kia là phân trang. Nên rule đọc khoá, rồi đọc tiếp
+xem giá trị đó **quyết định** hay chỉ **lọc**:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-ACCESS-001` | khoá nói về quyền ( `role`, `is_admin`, `permissions`, `user_type`, kể cả header `X-Admin` sau khi chuẩn hoá ) được đọc từ nơi **người gửi tự đặt được** -- query, form, body, cookie, header -- rồi **so với một giá trị quyền** ( `== "admin"` ) trong một điều kiện hay một `return`, hoặc dùng thẳng làm điều kiện khi khoá là cờ đúng/sai. 12 ngôn ngữ: Python trên AST, còn JS/TS, PHP, Ruby, Java, Go, C#, Kotlin… trên token, gồm cả hậu tố `if` của Ruby và `r.URL.Query().Get(...)` của Go | cùng khoá đó nhưng chỉ dùng để **lọc danh sách** hay ghi log; đọc từ **phiên đã ký** của server ( `request.session['role']` ); so với giá trị không phải quyền ( `== "guest"` ); `if request.args.get('role')` khi `role` không phải cờ đúng/sai -- câu đó chỉ hỏi "người gửi có truyền role hay không"; và hậu tố `if` của Ruby che một **phép gán** ( `translated_params[:role_ids] = ... if params[:permissions] == 'staff'` của mastodon là bộ lọc truy vấn trong admin API, không phải phép cấp quyền ) |
+| `FSB-MASS-001` | **cả gói dữ liệu** của người gửi đi thẳng vào một đối tượng được lưu, với request nhìn thấy được ngay tại chỗ ghi: `User.objects.create(**request.POST)`, `User(**request.data)`, `User.create(req.body)`, `Object.assign(user, req.body)`, `findByIdAndUpdate(id, req.body)`, `User::create($request->all())`, `params.permit!`, hoặc `permit(...)` có chính trường quyền trong danh sách | ghi **trường đã nêu tên** ( `create({ name: req.body.name })`, `create(email=request.POST['email'])` ); `**request.GET` vào `filter()` -- đó là lớp lỗi khác chứ không phải mass assignment; `**request.headers`; và **cấu hình thuần** không có request ở cạnh ( `$guarded = []` của Laravel, `fields = "__all__"` của Django ) -- hai kiểm tra đó đã bị **bỏ** sau khi chúng báo nhầm vào chính mã của framework |
+
 ### 📏 Thử trên mã thật
 
-Mười bốn rule trên được chạy trên **28 dự án thật**, rồi sửa đến khi mã chạy thật của các dự án
+Mười sáu rule trên được chạy trên **28 dự án thật**, rồi sửa đến khi mã chạy thật của các dự án
 sạch không còn báo sai:
 
 | Dự án | Tệp | Phát hiện ở mã chạy thật | Ghi chú |
@@ -249,8 +263,16 @@ sạch không còn báo sai:
 
 Tổng cộng **28751 tệp**. Các báo nhầm tìm ra trong lúc thử ( hasher bọc PBKDF2 của saleor, URL CSDL
 `localhost` mặc định, khoá tài nguyên bản địa hoá, tệp bản dịch của elfinder, thư mục
-`Newtonsoft.Json.Tests`, biến cục bộ `$httponly` của DVWA, bộ xử lý CORS có allowlist của saleor )
-đều đã được sửa và khoá lại bằng kiểm tra hồi quy.
+`Newtonsoft.Json.Tests`, biến cục bộ `$httponly` của DVWA, bộ xử lý CORS có allowlist của saleor,
+`permit(:page, *Admin::ActionLogFilter::KEYS)` và bộ lọc `?permissions=staff` trong admin API của
+mastodon ) đều đã được sửa và khoá lại bằng kiểm tra hồi quy.
+
+Hai rule mới nhất, `FSB-ACCESS-001` và `FSB-MASS-001`, báo **0** trên cả 28 dự án -- kể cả bốn ứng
+dụng cố tình có lỗ hổng. Đó là con số thật và nó nói đúng một điều: lỗ hổng mass assignment của
+juice-shop nằm trong endpoint REST do `finale-rest` sinh tự động, không có lời gọi `create(req.body)`
+nào trong mã nguồn để mà nhìn thấy; còn `req.body.role === security.roles.admin` ở
+`routes/verify.ts` là mã **dò challenge** của chính juice-shop, không phải phép cấp quyền, nên im
+lặng ở đó là đúng chứ không phải bỏ sót.
 
 > [!NOTE]
 > Có hai thứ **phân tích tĩnh không quyết định được**, và rule nói thẳng điều đó qua độ tin cậy

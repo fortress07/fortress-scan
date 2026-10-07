@@ -17,7 +17,7 @@ from ...core.budget import Budget
 from ...core.model import Confidence, Severity, StepKind
 from ..base import AnalysisUnit, FindingBuilder
 from ..python.imports import ImportResolver, dotted_name
-from . import config_python, web_python, words
+from . import access_python, config_python, web_python, words
 
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _MAX_LITERAL_DEPTH = 4
@@ -240,10 +240,12 @@ class PythonWeaknessChecks:
         # là secret nữa.
         self.consumed: Set[int] = set()
         self.tls_reported: Set[Tuple[int, str]] = set()
+        self.tree: ast.AST = ast.Module(body=[], type_ignores=[])
 
     # ------------------------------------------------------------------ index
 
     def run(self, tree: ast.AST) -> None:
+        self.tree = tree
         self.resolver.collect(tree)
         self._index(tree)
         self._check_hashes()
@@ -265,6 +267,7 @@ class PythonWeaknessChecks:
         self._check_secrets()
         config_python.check_jwt(self)
         web_python.check(self)
+        access_python.check(self)
 
     def _index(self, tree: ast.AST) -> None:
         for parent in ast.walk(tree):

@@ -1049,6 +1049,66 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
             "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
         ),
     ),
+    RuleSpec(
+        id="FSB-ACCESS-001",
+        title="Quyền được quyết định bằng giá trị người gửi tự đặt được",
+        category=Category.ACCESS_CONTROL,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-807", "CWE-285"),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Một trường của request -- tham số truy vấn, trường form, cookie hay header -- mang "
+            "tên quyền ( role, is_admin, superuser ) và được đem ra so để quyết định cho phép hay "
+            "không. Người gửi tự đặt được cả ba thứ đó bằng một dòng curl, nên ai cũng tự cấp "
+            "được quyền quản trị: thêm `?role=admin` hoặc một cookie `is_admin=1` là xong. Quyền "
+            "phải tra từ phía máy chủ theo danh tính đã xác thực ( phiên đã ký, token đã xác "
+            "minh, bản ghi trong CSDL ), không phải đọc lại từ chính request. Lời gọi chỉ LỌC "
+            "theo role ( `where('role', req.query.role)` ) không bị báo, vì đó không phải quyết "
+            "định cấp quyền."
+        ),
+        remediation=(
+            "Tra quyền từ phía máy chủ bằng danh tính đã xác thực: `current_user.is_admin` lấy từ "
+            "CSDL, claim trong token đã xác minh chữ ký, hay giá trị trong phiên đã ký của server. "
+            "Khi phải nhận quyền qua header từ gateway, hãy chắc gateway XOÁ header đó trên mọi "
+            "request từ ngoài vào, và nói rõ điều đó ở nơi đọc header."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/807.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-MASS-001",
+        title="Cả body của request được ghi thẳng vào đối tượng được lưu",
+        category=Category.MASS_ASSIGNMENT,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-915",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Toàn bộ dữ liệu người gửi đưa lên được gán vào một đối tượng rồi lưu, không qua danh "
+            "sách trường được phép: `User.objects.create(**request.POST)`, `User.create(req.body)`, "
+            "`User.findByIdAndUpdate(id, req.body)`, `User::create($request->all())` hay "
+            "`params.require(:user).permit!` của Rails. Người gửi chỉ cần thêm một khoá mà biểu mẫu "
+            "không có -- `is_admin`, `role`, `balance`, `email_verified` -- là ghi đè được cột đó. "
+            "Mức độ thiệt hại phụ thuộc vào model: trên bảng người dùng thì đây là đường lên "
+            "quyền quản trị, trên một bảng không có cột nhạy cảm thì không."
+        ),
+        remediation=(
+            "Liệt kê thẳng những trường được phép ghi: `params.require(:user).permit(:name, "
+            ":email)`, `$fillable = ['name', 'email']`, `fields = ['name', 'email']` trong Meta "
+            "của form, hoặc chép từng trường sang model. Rule chỉ báo chỗ THẤY request ngay tại "
+            "phép ghi; một dòng cấu hình đứng riêng ( `$guarded = []`, `fields = '__all__'` ) thì "
+            "không, vì nó nằm hợp lệ trong chính mã của framework. Các cột quyết định "
+            "quyền và số dư phải nằm ngoài danh sách đó và chỉ đổi được qua một đường riêng có "
+            "kiểm quyền."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/915.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html",
+        ),
+    ),
 )
 
 RULES: Dict[str, RuleSpec] = {rule.id: rule for rule in _RULE_LIST}
