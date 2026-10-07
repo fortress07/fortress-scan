@@ -13,7 +13,7 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![rules](https://img.shields.io/badge/41-rule-e05d44?style=flat-square)](#-41-rule-trên-18-họ-lỗ-hổng)
 [![families](https://img.shields.io/badge/18-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-41-rule-trên-18-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/15-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1434-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/1469-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -69,8 +69,8 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 <tr>
 <td align="center"><b>41</b><br/><sub>rule</sub></td>
 <td align="center"><b>18</b><br/><sub>họ lỗ hổng</sub></td>
-<td align="center"><b>18</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1434</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>20</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
+<td align="center"><b>1469</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
@@ -193,7 +193,7 @@ một hàm bọc vẫn bắt được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/languages-dark.svg">
-  <img alt="Độ phủ trên 18 ngôn ngữ và định dạng" src="docs/img/languages-light.svg" width="100%">
+  <img alt="Độ phủ trên 20 ngôn ngữ và định dạng" src="docs/img/languages-light.svg" width="100%">
 </picture>
 
 <details>
@@ -220,6 +220,8 @@ một hàm bọc vẫn bắt được.
 | 📦 **`package.json`** | script vòng đời tải mã từ xa về chạy |
 | 🐚 **Shell** <sub>bash, sh</sub> | `eval`, biến không đặt trong nháy kép |
 | 🟦 **C#** <sub>ASP.NET Core, ADO.NET</sub> | SQL ( `SqlCommand`, `CommandText` ), command ( `cmd.exe /c` ), path, redirect, SSRF, XSS ( `Html.Raw` ), header, LDAP, XPath, deser, `CSharpScript`, `Type.GetType` |
+| 🐦 **Swift** <sub>Vapor, Hummingbird, iOS</sub> | SQL ( SQLite C API, GRDB `sql:`, FMDB, SQLKit; `literal:` và `\(bind:)` được coi là tham số bind ), `NSPredicate(format:)`, `NSExpression`, `popen` / `Process` qua `sh -c`, `evaluateScript`, path, redirect, SSRF, WebView ( `loadHTMLString`, `evaluateJavaScript` ), `NSKeyedUnarchiver`, template; nguồn gồm query của Vapor / Hummingbird, deep link `open url:` và tin nhắn `WKScriptMessage` |
+| 🎯 **Dart** <sub>shelf, Dart Frog, Flutter</sub> | command ( `Process.run` chỉ báo nặng khi có `runInShell: true` hay `sh -c` ), SQL ( sqflite `rawQuery`, drift `customSelect`, postgres `Sql(...)` ), path, SSRF, redirect, WebView ( `loadHtmlString`, `runJavaScript` ), `Isolate.spawnUri`; nguồn gồm query của request, deep link go_router và tin nhắn `JavaScriptChannel` |
 | ⚙️ **C / C++ / Objective-C** <sub>`.c` `.h` `.cpp` `.hpp` `.mm`</sub> | tràn bộ đệm ( `gets`, `strcpy`, `strcat`, `sprintf`, `scanf("%s")`, `memcpy`/`recv` với độ dài chưa kiểm ), format string, use-after-free, double free, tràn số nguyên vào `malloc`, lệch một; command ( `system`, `popen`, `exec*` ), SQL ( SQLite, MySQL, libpq ), path, `dlopen` |
 
 </details>
@@ -345,7 +347,7 @@ Khi gõ lệnh quét thì có sáu bước xảy ra:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/analyzers-dark.svg">
-  <img alt="So sánh bộ phân tích AST cho Python với bộ quét theo token cho 16 ngôn ngữ còn lại" src="docs/img/analyzers-light.svg" width="100%">
+  <img alt="So sánh bộ phân tích AST cho Python với bộ quét theo token cho 18 ngôn ngữ còn lại" src="docs/img/analyzers-light.svg" width="100%">
 </picture>
 
 Rẽ nhánh thì hai nhánh được **gộp lại** ( nhiễm ở một nhánh là đủ để cảnh báo ), vòng lặp chỉ chạy
@@ -530,7 +532,7 @@ curl http://example.com/#frag; MSG="# fortress-scan: ignore-file" # Shell
 | :--- | :--- |
 | Python, Ruby | `#` |
 | Shell | `#`, và phải đứng đầu một từ |
-| JavaScript, TypeScript, Java, Kotlin, Scala, Groovy, C#, Go | `//`, `/* */` |
+| JavaScript, TypeScript, Java, Kotlin, Scala, Groovy, C#, Go, Swift, Dart | `//`, `/* */` |
 | PHP | `//`, `#`, `/* */` |
 | Lua | `--` |
 

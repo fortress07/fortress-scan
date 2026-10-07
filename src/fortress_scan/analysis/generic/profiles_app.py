@@ -503,6 +503,7 @@ _GROOVY_SINKS: Tuple[GenericSink, ...] = (
         SINK_EVAL,
         confidence=Confidence.HIGH,
         exact_names=True,
+        file_constructors=frozenset({"File"}),
     ),
     GenericSink(
         (

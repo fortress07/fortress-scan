@@ -11,7 +11,7 @@ import pytest
 
 from fortress_scan.core.config import Config
 from fortress_scan.core.engine import scan_source
-from fortress_scan.languages import CSHARP, GO, GROOVY, JAVA, KOTLIN, SCALA
+from fortress_scan.languages import CSHARP, DART, GO, GROOVY, JAVA, KOTLIN, SCALA, SWIFT
 
 _JAVA = (
     "class A {\n"
@@ -61,6 +61,22 @@ _CSHARP = (
     "}\n"
 )
 
+_SWIFT = (
+    'app.get("v") { req -> Response in\n'
+    '    let v = req.query["v"] ?? ""\n'
+    "    %s\n"
+    '    return Response(status: .ok)\n'
+    "}\n"
+)
+
+_DART = (
+    "Future<Response> handler(Request request) async {\n"
+    "  final v = request.url.queryParameters['v'] ?? '';\n"
+    "  %s;\n"
+    "  return Response.ok('ok');\n"
+    "}\n"
+)
+
 _JVM_SINKS = {
     "CMD": "Runtime.getRuntime().exec(v)",
     "SQL": "stmt.executeQuery(\"SELECT * FROM t WHERE a = '\" + v + \"'\")",
@@ -99,6 +115,24 @@ CASES = [
     (GO, "XSS", _GO % 'fmt.Fprintf(w, "<p>%s</p>", v)'),
     (GO, "HDR", _GO % 'w.Header().Set("X-A", v)'),
     (GO, "TMPL", _GO % 'template.New("t").Parse(v)'),
+    (SWIFT, "CMD", _SWIFT % 'let f = popen("ls " + v, "r")'),
+    (SWIFT, "SQL", _SWIFT % "sqlite3_exec(db, \"DELETE FROM t WHERE a = '\\(v)'\", nil, nil, nil)"),
+    (SWIFT, "NOSQL", _SWIFT % "let p = NSPredicate(format: \"name == '\\(v)'\")"),
+    (SWIFT, "EL", _SWIFT % "let e = NSExpression(format: v)"),
+    (SWIFT, "EXEC", _SWIFT % "context.evaluateScript(v)"),
+    (SWIFT, "PATH", _SWIFT % "let d = FileManager.default.contents(atPath: v)"),
+    (SWIFT, "REDIR", _SWIFT % "return req.redirect(to: v)"),
+    (SWIFT, "SSRF", _SWIFT % "let r = try await req.client.get(URI(string: v))"),
+    (SWIFT, "XSS", _SWIFT % "webView.loadHTMLString(v, baseURL: nil)"),
+    (SWIFT, "DESER", _SWIFT % "let o = NSKeyedUnarchiver.unarchiveObject(with: Data(v.utf8))"),
+    (SWIFT, "TMPL", _SWIFT % "let t = Template(templateString: v)"),
+    (DART, "CMD", _DART % "await Process.run('ping -c 1 $v', [], runInShell: true)"),
+    (DART, "SQL", _DART % "await db.rawQuery(\"SELECT * FROM t WHERE a = '$v'\")"),
+    (DART, "PATH", _DART % "File('/data/$v').readAsStringSync()"),
+    (DART, "REDIR", _DART % "return Response.found(v)"),
+    (DART, "SSRF", _DART % "await http.get(Uri.parse(v))"),
+    (DART, "XSS", _DART % "controller.loadHtmlString('<p>$v</p>')"),
+    (DART, "IMPORT", _DART % "await Isolate.spawnUri(Uri.parse(v), [], null)"),
     (CSHARP, "CMD", _CSHARP % 'Process.Start("cmd.exe", "/c " + v)'),
     (CSHARP, "SQL", _CSHARP % "new SqlCommand(\"SELECT * FROM t WHERE a = '\" + v + \"'\", conn)"),
     (CSHARP, "PATH", _CSHARP % "System.IO.File.ReadAllText(v)"),

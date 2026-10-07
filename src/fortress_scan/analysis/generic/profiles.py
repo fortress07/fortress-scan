@@ -50,6 +50,16 @@ class GenericSink:
     # Chỉ khớp đúng tên trần, không khớp `x.ten`: `evaluate(code)` ở mức script
     # Groovy là thực thi mã, còn `rule.evaluate(ctx)` là phương thức bất kỳ.
     exact_names: bool = False
+    # Swift / Dart: chỉ là sink khi đối số mang đúng nhãn này, và đó là đối số
+    # được xét: `FileManager.default.contents(atPath: p)`, `req.redirect(to: u)`.
+    argument_label: Optional[str] = None
+    # `Process.run(cmd, args, runInShell: true)` của Dart: nhãn này mang `true`
+    # thì chương trình và đối số đi qua shell.
+    shell_option_label: Optional[str] = None
+    # `evaluate(new File(settingsDir, 'x.groovy'))` chạy một TỆP script của dự
+    # án, không phải một chuỗi mã dựng lúc chạy: bỏ rule "không phải hằng" khi
+    # đối số là một lời tạo đối tượng kiểu này. Vết nhiễm vẫn được báo.
+    file_constructors: FrozenSet[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -144,6 +154,21 @@ class LanguageSpec:
     # Java/Kotlin/Scala là hằng `static final` / `const val` theo quy ước. Chỉ
     # bật ở ngôn ngữ mà quy ước này chắc; biến môi trường của shell cũng viết hoa.
     constant_case_names: bool = False
+    # Swift / Dart viết nhãn trước đối số ( `execute(sql: q)` ): nhãn là cú
+    # pháp, không phải một giá trị.
+    argument_labels: bool = False
+    # Đối số mang nhãn này được thư viện tham số hoá: `db.execute(literal: "...\(x)")`
+    # của GRDB biến mọi phần nội suy thành tham số bind.
+    bound_argument_labels: FrozenSet[str] = frozenset()
+    # Phần nội suy mở đầu bằng nhãn này được bind: `\(bind: x)` của SQLKit.
+    bound_interpolation_labels: FrozenSet[str] = frozenset()
+    # `func application(_ app: UIApplication, open url: URL, ...)`: nhãn ngoài của
+    # tham số nói nó là dữ liệu từ bên ngoài ( deep link ). Nhãn -> nhãn nguồn.
+    parameter_label_sources: Dict[str, str] = field(default_factory=dict)
+    # `database.execute(Sql('SELECT ...'))` của package postgres,
+    # `http.get(Uri.parse(u))`: lời gọi chỉ bọc lấy giá trị, đối số đầu tiên của
+    # nó mới là chính câu SQL hay URL. `Sql('SELECT 1')` vì thế vẫn là hằng.
+    value_wrappers: FrozenSet[str] = frozenset()
 
 
 # Ép về số hoặc UUID thì không còn ký tự đặc biệt nào sống sót, ở bất kỳ nhóm
@@ -2299,8 +2324,10 @@ def _register_application_languages() -> None:
     # Đặt ở tệp riêng để bảng này không phình thêm hàng nghìn dòng; tệp đó
     # dùng lại các hằng ở trên nên chỉ nạp được sau khi chúng đã có.
     from .profiles_app import APPLICATION_SPECS
+    from .profiles_mobile import MOBILE_SPECS
 
     SPECS.update(APPLICATION_SPECS)
+    SPECS.update(MOBILE_SPECS)
 
 
 _register_application_languages()

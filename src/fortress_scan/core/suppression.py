@@ -33,6 +33,7 @@ from ..languages import (
     C,
     CPP,
     CSHARP,
+    DART,
     GO,
     GROOVY,
     JAVA,
@@ -49,6 +50,7 @@ from ..languages import (
     RUST,
     SCALA,
     SHELL,
+    SWIFT,
     TYPESCRIPT,
     WORKFLOW,
 )
@@ -128,6 +130,8 @@ _LINE_COMMENTS: Dict[str, Tuple[str, ...]] = {
     KOTLIN: ("//",),
     SCALA: ("//",),
     GROOVY: ("//",),
+    SWIFT: ("//",),
+    DART: ("//",),
 }
 
 # Trong shell, `#` chỉ mở chú thích khi nó BẮT ĐẦU một từ. `curl http://x/#frag`
@@ -171,6 +175,8 @@ _BLOCK_COMMENTS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     KOTLIN: (_C_COMMENT,),
     SCALA: (_C_COMMENT,),
     GROOVY: (_C_COMMENT,),
+    SWIFT: (_C_COMMENT,),
+    DART: (_C_COMMENT,),
 }
 
 # Ngôn ngữ lạ thì nhận cả hai dấu phổ biến: thà nhận dư một dấu mở chú thích còn
@@ -222,6 +228,8 @@ _SPANNING_QUOTES: Dict[str, FrozenSet[str]] = {
     KOTLIN: frozenset(),
     SCALA: frozenset(),
     GROOVY: frozenset(),
+    SWIFT: frozenset(),
+    DART: frozenset(),
 }
 _DEFAULT_SPANNING_QUOTES: FrozenSet[str] = frozenset("`")
 

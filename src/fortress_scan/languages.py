@@ -35,6 +35,10 @@ SCALA = "scala"
 # lệnh shell chạy trên máy build giữ credential.
 GROOVY = "groovy"
 
+# Ứng dụng di động và máy chủ Swift.
+SWIFT = "swift"
+DART = "dart"
+
 _EXTENSION_MAP: Dict[str, str] = {
     ".py": PYTHON,
     ".pyw": PYTHON,
@@ -69,6 +73,8 @@ _EXTENSION_MAP: Dict[str, str] = {
     ".jenkinsfile": GROOVY,
     ".scala": SCALA,
     ".sc": SCALA,
+    ".swift": SWIFT,
+    ".dart": DART,
     ".c": C,
     ".h": C,
     ".cc": CPP,
@@ -282,4 +288,6 @@ def display_name(language: str) -> str:
         KOTLIN: "Kotlin",
         SCALA: "Scala",
         GROOVY: "Groovy",
+        SWIFT: "Swift",
+        DART: "Dart",
     }.get(language, language)

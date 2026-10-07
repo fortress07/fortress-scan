@@ -203,6 +203,8 @@ class _Analysis:
             self._seed_handlers(tokens)
         if self.spec.lambda_sources:
             self._seed_lambda_sources(tokens)
+        if self.spec.parameter_label_sources:
+            self._seed_label_parameters(tokens)
         if not self.spec.annotation_sources:
             return
         index = 0
@@ -300,6 +302,25 @@ class _Analysis:
                 self._seed_parameter(
                     tokens, cursor + 1, name, TaintMark(REQUEST_BOUND_PARAMETER, parameter[0].line, Confidence.HIGH)
                 )
+
+    def _seed_label_parameters(self, tokens: Sequence[Token]) -> None:
+        """`open url: URL`: tham số mang nhãn ngoài này đến từ bên ngoài app."""
+        for index in range(1, len(tokens) - 2):
+            token = tokens[index]
+            if token.kind != IDENT or token.in_string:
+                continue
+            label = self.spec.parameter_label_sources.get(token.text)
+            if label is None:
+                continue
+            back = index - 1
+            while back > 0 and tokens[back].kind == NEWLINE:
+                back -= 1
+            before, name, colon = tokens[back], tokens[index + 1], tokens[index + 2]
+            if before.kind != OP or before.text not in ("(", ","):
+                continue
+            if name.kind != IDENT or colon.kind != OP or colon.text != ":":
+                continue
+            self._seed_parameter(tokens, index, name.text, TaintMark(label, token.line, Confidence.HIGH))
 
     def _seed_lambda_sources(self, tokens: Sequence[Token]) -> None:
         """`parameter("q") { q => ... }`, `path("u" / Segment) { id => ... }`.
@@ -415,7 +436,20 @@ class _Analysis:
         if target is not None:
             member = target.rsplit(".", 1)[-1]
             sink = self.spec.assignment_sinks.get(member)
-            if sink is not None:
+            listed = _listed_elements(right) if sink is not None and sink[1] is Category.COMMAND else None
+            if listed and _sole_string(listed[0]) in _SHELL_FLAGS:
+                # `task.arguments = ["-c", cmd]`: phần còn lại là một lệnh shell.
+                rest = [token for item in listed[1:] for token in item]
+                self._report_expression(
+                    rule_id="FSB-CMD-001",
+                    dynamic_rule="FSB-CMD-003",
+                    description="một lệnh shell truyền qua cờ thông dịch",
+                    symbol=member,
+                    tokens=rest,
+                    mark=self._taint_of(rest),
+                    confidence=Confidence.HIGH,
+                )
+            elif sink is not None:
                 self._report_expression(
                     rule_id=sink[0],
                     dynamic_rule=None,
@@ -460,7 +494,8 @@ class _Analysis:
             chain_end = statement[next_index - 1] if next_index > index else statement[index]
             if opens_call:
                 arguments, _ = _read_arguments(statement, next_index)
-                self._check_call(chain, statement[index], arguments, chain_end)
+                member = index > 0 and statement[index - 1].kind == OP and statement[index - 1].text in self.spec.chain_separators
+                self._check_call(chain, statement[index], arguments, chain_end, member=member)
                 if self.spec.fill_sources or self.spec.propagators:
                     self._apply_outputs(chain, statement[index], arguments)
                 if self.spec.receiver_propagators:
@@ -479,9 +514,44 @@ class _Analysis:
         anchor: Token,
         arguments: Sequence[Sequence[Token]],
         anchor_end: Optional[Token] = None,
+        member: bool = False,
     ) -> None:
         sink = _match_sink(chain, self.spec)
         if sink is None:
+            return
+        if member and sink.exact_names:
+            # `.popen(...)` / `x.sh(...)`: phương thức của một đối tượng, không phải hàm trần.
+            return
+        labels: List[Optional[str]] = []
+        if self.spec.argument_labels:
+            labels = [_argument_label(argument) for argument in arguments]
+            if sink.argument_label is not None and sink.argument_label not in labels:
+                # Cùng tên, khác nhãn: `FileHandle(forReadingAtPath:)` / `(forWritingAtPath:)`.
+                sink = next(
+                    (
+                        candidate
+                        for candidate in _matching_sinks(chain, self.spec)
+                        if candidate.argument_label is None or candidate.argument_label in labels
+                    ),
+                    None,
+                )
+                if sink is None:
+                    return
+            arguments = [argument[2:] if label else argument for label, argument in zip(labels, arguments)]
+            if self.spec.bound_argument_labels:
+                arguments = [
+                    [token for token in argument if not token.interpolated]
+                    if label in self.spec.bound_argument_labels
+                    else argument
+                    for label, argument in zip(labels, arguments)
+                ]
+            if self.spec.bound_interpolation_labels:
+                arguments = [_drop_bound_interpolations(argument, self.spec) for argument in arguments]
+            if sink.argument_label is not None:
+                if sink.argument_label not in labels:
+                    return
+                arguments = [arguments[labels.index(sink.argument_label)]]
+        elif sink.argument_label is not None:
             return
         if sink.first_argument_names:
             if not arguments or _lone_name(arguments[0]) not in sink.first_argument_names:
@@ -493,6 +563,8 @@ class _Analysis:
                 else [token for token in argument if not token.interpolated]
                 for argument in arguments
             ]
+        if self.spec.value_wrappers:
+            arguments = [_unwrap_call(argument, self.spec.value_wrappers, self.spec) for argument in arguments]
         dynamic_rule = sink.dynamic_rule
         if sink.require_sql:
             selected = _select_sql_argument(arguments, sink, chain, self.budget.spend, self._mentions_sql)
@@ -503,6 +575,14 @@ class _Analysis:
                 dynamic_rule = None
         elif sink.program_position:
             wrapped = _shell_wrapper_argument(arguments)
+            if sink.shell_option_label is not None and sink.shell_option_label in labels:
+                option = arguments[labels.index(sink.shell_option_label)]
+                if len(option) == 1 and option[0].text == "true":
+                    # Process.run(cmd, args, runInShell: true): chương trình và đối số
+                    # được ghép thành một dòng lệnh shell.
+                    wrapped = [
+                        token for argument, label in zip(arguments, labels) if label is None for token in argument
+                    ]
             if wrapped is not None:
                 self._report_expression(
                     rule_id="FSB-CMD-001",
@@ -524,6 +604,8 @@ class _Analysis:
             selected = arguments[position] if arguments else ()
         if not selected:
             return
+        if sink.file_constructors and _constructs(selected, sink.file_constructors):
+            dynamic_rule = None
         mark = self._taint_of(selected)
         if sink.category is Category.REDIRECT and mark is not None and self._fixed_origin(selected):
             return
@@ -1063,7 +1145,12 @@ class _Analysis:
         if text and looks_like_sql(text, self.budget.spend):
             return True
         if self.sql_like:
-            return any(chain in self.sql_like for chain in self._chains(tokens))
+            # `sb.toString()` mang câu SQL của chính `sb`.
+            return any(
+                chain in self.sql_like
+                or ("." in chain and chain.rsplit(".", 1)[1] in self.spec.value_accessors and chain.rsplit(".", 1)[0] in self.sql_like)
+                for chain in self._chains(tokens)
+            )
         return False
 
     def _is_neutralized(self, tokens: Sequence[Token]) -> bool:
@@ -1297,6 +1384,12 @@ def _shell_wrapper_argument(
         return None
     if program.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower() not in _SHELL_BINARIES:
         return None
+    # Process.run('sh', ['-c', cmd]) của Dart, spawn('sh', ['-c', cmd]) của Node.
+    listed = _listed_elements(arguments[1])
+    if listed is not None:
+        for index in range(len(listed) - 1):
+            if _sole_string(listed[index]) in _SHELL_FLAGS:
+                return listed[index + 1]
     for index in range(1, len(arguments) - 1):
         flag = _sole_string(arguments[index])
         if flag is not None and flag in _SHELL_FLAGS:
@@ -1488,8 +1581,20 @@ def _postfix_categories(tokens: Sequence[Token], position: int, spec: LanguageSp
                 found = found | categories
             cursor += 2
             continue
-        if token.kind == OP and token.text in ("!!", "?") and not token.in_string:
+        if token.kind == OP and token.text in ("!!", "?", "!") and not token.in_string:
             cursor += 1
+            continue
+        if token.kind == OP and token.text in (")", "]") and not token.in_string:
+            # Ra khỏi nhóm đang chứa giá trị: `(name as NSString).lastPathComponent`,
+            # `URL(fileURLWithPath: p).lastPathComponent` khử cả biểu thức trong ngoặc.
+            cursor += 1
+            continue
+        if token.kind == IDENT and token.text == "as" and not token.in_string:
+            # Ép kiểu `as` / `as?` / `as!` của Swift và Kotlin không đổi giá trị.
+            cursor += 1
+            if cursor < limit and tokens[cursor].kind == OP and tokens[cursor].text in ("?", "!"):
+                cursor += 1
+            _, cursor = _read_chain(tokens, cursor, spec)
             continue
         break
     return found
@@ -1684,6 +1789,29 @@ def _starts_assignment_or_access(statement: Sequence[Token], index: int, spec: L
     if token.kind != OP or token.in_string:
         return False
     return token.text in spec.assignment_operators or token.text in spec.chain_separators or token.text in (")", ",", "]")
+
+
+def _unwrap_call(argument: Sequence[Token], wrappers: FrozenSet[str], spec: LanguageSpec) -> Sequence[Token]:
+    """`Sql('SELECT ...', types: [...])` -> `'SELECT ...'`: chỉ đối số đầu của kiểu bọc."""
+    if not argument or argument[0].kind != IDENT or argument[0].in_string:
+        return argument
+    chain, cursor = _read_chain(argument, 0, spec)
+    if chain not in wrappers or cursor >= len(argument) or argument[cursor].text != "(":
+        return argument
+    if _group_end(argument, cursor) != len(argument):
+        return argument
+    inner, _ = _read_arguments(list(argument), cursor)
+    return list(inner[0]) if inner else argument
+
+
+def _constructs(argument: Sequence[Token], types: FrozenSet[str]) -> bool:
+    """Đối số là đúng một lời tạo `new T(...)` / `T(...)` với T thuộc `types`."""
+    cursor = 1 if argument and argument[0].kind == IDENT and argument[0].text == "new" else 0
+    if len(argument) < cursor + 3 or argument[cursor].kind != IDENT or argument[cursor].text not in types:
+        return False
+    if argument[cursor + 1].kind != OP or argument[cursor + 1].text != "(":
+        return False
+    return _group_end(argument, cursor + 1) == len(argument)
 
 
 def _lone_name(argument: Sequence[Token]) -> Optional[str]:
@@ -1882,6 +2010,22 @@ def _always_sql(chain: str) -> bool:
         if ".".join(parts[start:]) in _ALWAYS_SQL:
             return True
     return False
+
+
+def _matching_sinks(chain: str, spec: LanguageSpec, receiver: bool = False) -> List[GenericSink]:
+    """Mọi sink khớp `chain`, tên dài ( cụ thể ) trước."""
+    found: List[Tuple[int, int, GenericSink]] = []
+    for order, sink in enumerate(spec.sinks):
+        if sink.receiver != receiver:
+            continue
+        lengths = [
+            len(name)
+            for name in sink.names
+            if chain == name or (not sink.exact_names and chain.endswith("." + name))
+        ]
+        if lengths:
+            found.append((-max(lengths), order, sink))
+    return [sink for _, _, sink in sorted(found, key=lambda item: (item[0], item[1]))]
 
 
 def _match_sink(chain: str, spec: LanguageSpec, receiver: bool = False) -> Optional[GenericSink]:
@@ -2104,6 +2248,41 @@ def _pins_origin(head: str) -> bool:
             return True
     # `http` + `s://evil.com`: giá trị bẩn còn viết tiếp được scheme.
     return False
+
+
+def _argument_label(argument: Sequence[Token]) -> Optional[str]:
+    """`sql: q` -> "sql". Nhãn là một định danh đứng ngay trước dấu `:` đơn."""
+    if (
+        len(argument) > 2
+        and argument[0].kind == IDENT
+        and not argument[0].in_string
+        and argument[1].kind == OP
+        and argument[1].text == ":"
+        and not argument[1].in_string
+    ):
+        return argument[0].text
+    return None
+
+
+def _drop_bound_interpolations(argument: Sequence[Token], spec: LanguageSpec) -> List[Token]:
+    """Bỏ những vùng nội suy mở đầu bằng nhãn bind: `\\(bind: name)` của SQLKit."""
+    bound: Set[Tuple[int, int]] = set()
+    seen: Set[Tuple[int, int]] = set()
+    for index, token in enumerate(argument):
+        if not token.interpolated or token.span in seen:
+            continue
+        seen.add(token.span)
+        following = argument[index + 1] if index + 1 < len(argument) else None
+        if (
+            token.text in spec.bound_interpolation_labels
+            and following is not None
+            and following.span == token.span
+            and following.text == ":"
+        ):
+            bound.add(token.span)
+    if not bound:
+        return list(argument)
+    return [token for token in argument if not (token.interpolated and token.span in bound)]
 
 
 def _concatenation_operands(tokens: Sequence[Token]) -> List[List[Token]]:
