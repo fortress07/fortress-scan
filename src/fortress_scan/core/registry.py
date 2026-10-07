@@ -1109,6 +1109,148 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
             "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html",
         ),
     ),
+    RuleSpec(
+        id="FSB-PATH-002",
+        title="Giải nén tệp nén mà không chuẩn hoá tên thành viên ( zip slip )",
+        category=Category.PATH,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-22",),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Tên thành viên trong một tệp nén là dữ liệu của người đưa tệp lên, và nó được "
+            "phép chứa `../`. Khi tên đó được nối vào thư mục đích mà không ai kiểm lại, nội "
+            "dung ghi ra ngoài thư mục ấy: `../../etc/cron.d/x`, `../../.ssh/authorized_keys`, "
+            "hay một tệp `.jar` của chính ứng dụng. `tarfile.extractall()` của Python không "
+            "chuẩn hoá tên ( CVE-2007-4559 ), `new File(dir, entry.getName())` của Java và "
+            "`filepath.Join(dest, hdr.Name)` của Go cũng không. `zipfile` của Python thì có, "
+            "nên lối đó không bị báo."
+        ),
+        remediation=(
+            "Python: truyền `filter='data'` cho `extractall` ( PEP 706 ), có từ 3.12 và được "
+            "backport về 3.9.17. Java và Go: tính đường dẫn đích rồi so tiền tố -- "
+            "`target.getCanonicalPath().startsWith(dir.getCanonicalPath() + File.separator)`, "
+            "`strings.HasPrefix(filepath.Clean(target), filepath.Clean(dest)+string(os.PathSeparator))` "
+            "-- và bỏ qua thành viên nào không khớp. Kiểm cả liên kết tượng trưng trong tệp nén."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/22.html",
+            "https://peps.python.org/pep-0706/",
+            "https://security.snyk.io/research/zip-slip-vulnerability",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-PERM-001",
+        title="Quyền tệp mở cho mọi người dùng trên máy ghi",
+        category=Category.PERMISSION,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-732", "CWE-276"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "`chmod 0777`, `chmod a+w`, `setWritable(true, false)` hay `umask(0)` cho bất kỳ "
+            "ai có một tiến trình trên máy quyền ghi vào tệp. Nếu tệp đó là mã sẽ được chạy, "
+            "một tệp cấu hình sẽ được đọc, hay một tệp log mà dịch vụ khác tin, thì đây là "
+            "đường leo thang quyền cục bộ -- không cần qua mạng. Rule chỉ nhìn họ `chmod`, "
+            "vì chmod bỏ qua umask nên con số viết trong mã là quyền thật; chế độ truyền cho "
+            "`open` hay `mkdir` thì còn bị umask che nên không bị báo."
+        ),
+        remediation=(
+            "Cho quyền hẹp nhất còn chạy được: 0600 cho tệp dữ liệu của một tiến trình, 0640 "
+            "khi một nhóm cần đọc, 0755 cho tệp chạy được. Cần nhiều tiến trình dùng chung "
+            "thì đặt nhóm chung rồi cấp quyền cho nhóm, đừng cấp cho cả máy."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/732.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-TMP-001",
+        title="Tệp tạm mang tên đoán trước được",
+        category=Category.TEMP_FILE,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-377", "CWE-379"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "`/tmp` là thư mục ai cũng ghi được. Một tên tệp cố định ở đó, hay một tên do "  # NOSONAR
+            "`tempfile.mktemp()` sinh ra rồi mới mở, để lại một khoảng giữa lúc chọn tên và "
+            "lúc tạo tệp: ai cũng chen được vào đúng tên ấy một liên kết tượng trưng trỏ tới "
+            "`~/.bashrc` hay `/etc/passwd`, và tiến trình nạn nhân ghi hộ. Đổi được nội dung "
+            "tệp người khác, hoặc đọc được nội dung đáng ra là riêng."
+        ),
+        remediation=(
+            "Dùng hàm tạo tệp tạm nguyên tử: `tempfile.NamedTemporaryFile` hay "
+            "`tempfile.mkstemp` ( Python ), `Files.createTempFile` ( Java ), `os.CreateTemp` "
+            "( Go ), `mkstemp` ( C ). Chúng tạo tệp với tên ngẫu nhiên và quyền chỉ chủ sở "
+            "hữu trong cùng một bước, nên không còn khoảng trống nào để chen vào."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/377.html",
+            "https://docs.python.org/3/library/tempfile.html#tempfile.mktemp",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-DEBUG-001",
+        title="Chế độ gỡ lỗi bật trong mã đi kèm ứng dụng",
+        category=Category.DEBUG,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-489", "CWE-215"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Bộ gỡ lỗi của Werkzeug ( `app.run(debug=True)`, `DebuggedApplication(evalex=True)` ) "
+            "mở một shell Python ngay trên trang lỗi, nên nó là lối chạy mã tuỳ ý. `DEBUG = True` "
+            "của Django in cấu hình, biến môi trường và truy vết của mọi request lỗi; "
+            "`UseDeveloperExceptionPage()` của ASP.NET và `display_errors` của PHP cũng lộ "
+            "đường dẫn, câu truy vấn và chuỗi kết nối. Rule im lặng ở nơi đây đúng là chủ ý: "
+            "`app.run(debug=True)` trong `if __name__ == \"__main__\"`, tệp cấu hình có tên "
+            "chứa dev / local, và `UseDeveloperExceptionPage` nằm sau `env.IsDevelopment()`."
+        ),
+        remediation=(
+            "Lấy giá trị từ biến môi trường với mặc định là TẮT, rồi bật riêng ở máy dev: "
+            "`DEBUG = os.environ.get('DEBUG') == '1'`. ASP.NET: để "
+            "`UseDeveloperExceptionPage` trong nhánh `if (env.IsDevelopment())`. PHP: "
+            "`display_errors = Off` kèm `log_errors = On` ở nơi triển khai."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/489.html",
+            "https://werkzeug.palletsprojects.com/en/stable/debug/",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-PROTO-001",
+        title="Hàm gộp đối tượng ghi theo khoá của nguồn mà không loại __proto__",
+        category=Category.PROTOTYPE,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-1321",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Một hàm gộp duyệt khoá của đối tượng nguồn rồi ghi `target[key] = ...`. Trong "
+            "JavaScript, `obj['__proto__']` KHÔNG tạo một khoá tên `__proto__` mà đi thẳng "
+            "vào nguyên mẫu của đối tượng, nên một nguồn chứa "
+            "`{\"__proto__\": {\"isAdmin\": true}}` ghi được một thuộc tính mà MỌI đối tượng "
+            "trong tiến trình đọc thấy. Hậu quả tuỳ chuỗi khai thác phía sau: vượt qua một "
+            "phép kiểm đọc thuộc tính mặc định, hay bơm một tham số vào thư viện khác. Chỉ "
+            "hình dạng vòng lặp thì CHƯA đủ: rule đòi thấy dữ liệu người gửi đi vào hàm gộp "
+            "đó trong cùng tệp -- `merge(config, req.body)`, `JSON.parse(...)`, hoặc vòng "
+            "lặp duyệt thẳng `req.body`. Không có điều kiện ấy thì mọi hàm gộp của mọi thư "
+            "viện JavaScript đều bị báo, mà hầu hết chúng chỉ gộp cấu hình của chính mình."
+        ),
+        remediation=(
+            "Bỏ qua ba khoá nguy hiểm ngay trong vòng lặp: `if (key === '__proto__' || key === "
+            "'constructor' || key === 'prototype') continue;`. Chỉ nhận khoá của chính đối "
+            "tượng ( `Object.prototype.hasOwnProperty.call(source, key)` ), hoặc dựng đối "
+            "tượng bằng `Object.create(null)` và `Map` để không có nguyên mẫu nào mà bơm. Với "
+            "dữ liệu JSON từ ngoài, dùng một lược đồ liệt kê trường được phép."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/1321.html",
+            "https://portswigger.net/web-security/prototype-pollution",
+        ),
+    ),
 )
 
 RULES: Dict[str, RuleSpec] = {rule.id: rule for rule in _RULE_LIST}

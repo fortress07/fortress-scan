@@ -17,7 +17,7 @@ from ...core.budget import Budget
 from ...core.model import Confidence, Severity, StepKind
 from ..base import AnalysisUnit, FindingBuilder
 from ..python.imports import ImportResolver, dotted_name
-from . import access_python, config_python, web_python, words
+from . import access_python, config_python, hardening_python, web_python, words
 
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _MAX_LITERAL_DEPTH = 4
@@ -268,6 +268,7 @@ class PythonWeaknessChecks:
         config_python.check_jwt(self)
         web_python.check(self)
         access_python.check(self)
+        hardening_python.check(self)
 
     def _index(self, tree: ast.AST) -> None:
         for parent in ast.walk(tree):

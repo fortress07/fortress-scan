@@ -458,6 +458,26 @@ TRIGGERS.update(
             JAVASCRIPT,
             "app.post('/u', (req, res) => {\n  User.create(req.body);\n  res.end();\n});\n",
         ),
+        "FSB-PATH-002": (
+            PYTHON,
+            "import tarfile\n\n\ndef unpack(p, dest):\n    with tarfile.open(p) as tar:\n"
+            "        tar.extractall(dest)\n",
+        ),
+        "FSB-PERM-001": (PYTHON, "import os\n\n\ndef publish(p):\n    os.chmod(p, 0o777)\n"),
+        "FSB-TMP-001": (
+            PYTHON,
+            "import tempfile\n\n\ndef stage():\n    return tempfile.mktemp()\n",
+        ),
+        "FSB-DEBUG-001": (
+            PYTHON,
+            "from flask import Flask\n\napp = Flask(__name__)\napp.run(debug=True)\n",
+        ),
+        "FSB-PROTO-001": (
+            JAVASCRIPT,
+            "function merge(target, source) {\n  for (const key in source) {\n"
+            "    target[key] = source[key];\n  }\n  return target;\n}\n"
+            "\napp.post('/s', (req, res) => { merge(config, req.body); });\n",
+        ),
     }
 )
 
@@ -512,6 +532,29 @@ SAFE_VARIANTS.update(
             JAVASCRIPT,
             "app.post('/u', (req, res) => {\n  User.create({ name: req.body.name });\n"
             "  res.end();\n});\n",
+        ),
+        "FSB-PATH-002": (
+            PYTHON,
+            "import tarfile\n\n\ndef unpack(p, dest):\n    with tarfile.open(p) as tar:\n"
+            "        tar.extractall(dest, filter='data')\n",
+        ),
+        "FSB-PERM-001": (PYTHON, "import os\n\n\ndef publish(p):\n    os.chmod(p, 0o644)\n"),
+        "FSB-TMP-001": (
+            PYTHON,
+            "import tempfile\n\n\ndef stage():\n    fd, name = tempfile.mkstemp()\n    return name\n",
+        ),
+        # Lối chạy trên máy dev, không phải cấu hình đi kèm ứng dụng.
+        "FSB-DEBUG-001": (
+            PYTHON,
+            "from flask import Flask\n\napp = Flask(__name__)\nif __name__ == '__main__':\n"
+            "    app.run(debug=True)\n",
+        ),
+        "FSB-PROTO-001": (
+            JAVASCRIPT,
+            "function merge(target, source) {\n  for (const key in source) {\n"
+            "    if (key === '__proto__' || key === 'constructor') continue;\n"
+            "    target[key] = source[key];\n  }\n  return target;\n}\n"
+            "\napp.post('/s', (req, res) => { merge(config, req.body); });\n",
         ),
     }
 )

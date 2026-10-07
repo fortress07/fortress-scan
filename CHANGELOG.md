@@ -70,6 +70,59 @@ PEM trong `security/redaction.py` giờ che cả phần thân base64, không ch�
   `translated_params[:role_ids] = ... if params[:permissions] == 'staff'` ( bộ lọc truy vấn của
   admin API, không phải phép cấp quyền ).
 
+### Prototype pollution
+
+- `FSB-PROTO-001`: một hàm gộp trên JS / TS duyệt khoá của đối tượng nguồn rồi ghi
+  `target[key] = ...`. Trong JavaScript, `obj['__proto__']` không tạo khoá tên `__proto__` mà đi
+  thẳng vào nguyên mẫu, nên một nguồn chứa `{"__proto__": {"isAdmin": true}}` bơm được thuộc
+  tính mà mọi đối tượng trong tiến trình đọc thấy. Rule đòi hàm phải LÀ hàm gộp ( tên chứa
+  merge / extend / deep / copy, hoặc hàm gọi lại chính nó ): một vòng lặp `for (k in src)` bất
+  kỳ thì chưa nói gì về ý định. Im lặng khi hàm có bất kỳ phép loại khoá nào, và khi `for ... of`
+  chạy trên mảng vì ở đó biến lặp là giá trị chứ không phải khoá.
+
+### Prototype pollution
+
+- `FSB-PROTO-001`: một hàm gộp trên JS / TS duyệt khoá của đối tượng nguồn rồi ghi
+  `target[key] = ...`. Trong JavaScript, `obj['__proto__']` không tạo khoá tên `__proto__` mà đi
+  thẳng vào nguyên mẫu, nên một nguồn chứa `{"__proto__": {"isAdmin": true}}` bơm được thuộc tính
+  mà mọi đối tượng trong tiến trình đọc thấy.
+- Rule đòi HAI điều kiện cùng lúc: hàm phải là hàm gộp ( tên chứa merge / extend / deep / copy,
+  hoặc nó gọi lại chính nó ), VÀ phải thấy dữ liệu người gửi đi vào hàm đó trong cùng tệp
+  ( `merge(config, req.body)`, `JSON.parse(...)`, hay vòng lặp duyệt thẳng `req.body` ). Bản đầu
+  chỉ đòi điều kiện thứ nhất và báo đúng 9 chỗ trên 28 repo thật -- ace.js, wysihtml5, cldrjs,
+  globalize, moment -- tất cả đều là hàm gộp nội bộ của thư viện đi kèm, nơi nguồn là chính cấu
+  hình của thư viện. Cả 9 đều im sau khi thêm điều kiện thứ hai, và hình `extend` của moment có
+  một bài kiểm tra riêng giữ nó im: `hasOwnProp` là bộ bọc của chính moment nên phép dò không
+  nhận ra nó là phép canh.
+- Phải đọc kèm giới hạn: chỗ gọi hàm gộp phải nằm trong CÙNG tệp với hàm. Hàm tiện ích ở
+  `utils/merge.js` và route ở `routes/settings.js` là hai tệp, nên lối đó cần phân tích xuyên
+  file và không thuộc rule này.
+
+### Zip slip, quyền tệp, tệp tạm và chế độ gỡ lỗi
+
+- `FSB-PATH-002`: tên thành viên trong tệp nén nối vào thư mục đích mà không ai kiểm lại.
+  `tarfile.extractall()` không có `filter=` ( CVE-2007-4559 ), `shutil.unpack_archive`,
+  `new File(dir, entry.getName())` của Java và `filepath.Join(dest, hdr.Name)` của Go.
+  `zipfile.extractall` KHÔNG bị báo: `ZipFile._extract_member` tự bỏ dấu phân cách đầu và `..`.
+- `FSB-PERM-001`: quyền mở cho mọi người dùng trên máy ghi, qua họ `chmod` trên Python, Go, PHP,
+  Ruby, Java và shell, kèm `setWritable(true, false)`, `PosixFilePermissions.fromString` và
+  `umask(0)`. Chế độ truyền cho hàm TẠO tệp hay thư mục không bị báo, vì chmod bỏ qua umask còn
+  `open` / `mkdir` / `MkdirAll` thì không -- `os.MkdirAll(p, 0777)` với umask 022 ra 0755.
+- `FSB-TMP-001`: `tempfile.mktemp()`, và phép ghi vào đường dẫn hằng dưới `/tmp`, `/var/tmp`,
+  `/dev/shm` trên Python, JS / TS, Java, Go, PHP, C# và shell. Phép đọc không bị báo.
+- `FSB-DEBUG-001`: `app.run(debug=True)` ngoài `if __name__ == "__main__"`,
+  `DebuggedApplication(evalex=True)`, `DEBUG = True` trong tệp cấu hình không mang tên dev /
+  local, `UseDeveloperExceptionPage()` không nằm sau phép kiểm môi trường, và
+  `ini_set('display_errors', 1)`.
+- Báo nhầm tìm ra trên django và đã khoá lại bằng kiểm tra hồi quy: `current = os.umask(0)` rồi
+  `os.umask(current)` ( `core/management/templates.py` ) là lối ĐỌC umask hiện tại, vì umask trả
+  về giá trị cũ. Chỉ khi kết quả bị bỏ thì lời gọi mới thật sự là phép đặt.
+- Quét 28 dự án thật cho bốn rule này: bắt đúng bài học zip slip của WebGoat
+  ( `ProfileZipSlip.java` ) và `ini_set('display_errors', 1)` của DVWA, ngoài ra không báo chỗ nào.
+- Báo nhầm tìm ra trên django và đã khoá lại bằng kiểm tra hồi quy: `current = os.umask(0)` rồi
+  `os.umask(current)` ( `core/management/templates.py` ) là lối ĐỌC umask hiện tại, vì umask trả
+  về giá trị cũ. Chỉ khi kết quả bị bỏ thì lời gọi mới thật sự là phép đặt.
+
 ### Ngữ cảnh tệp
 
 - Tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như `RegistrationUITest.java`, `APITests.java`.

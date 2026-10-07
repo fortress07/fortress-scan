@@ -121,11 +121,33 @@ _MONGOOSE_WRITES = frozenset(
 _LARAVEL_WRITES = frozenset({"create", "update", "fill", "forceFill", "firstOrCreate", "updateOrCreate"})
 
 
+# Hàm gộp: tên hàm nói ra ý định ghi khoá của nguồn sang đích. Đòi tên ( hoặc
+# đệ quy ) là phép lọc độ chính xác: một vòng lặp `for (k in src)` bất kỳ thì
+# chưa nói gì, còn `mergeDeep(target, source)` thì nói rất rõ.
+_MERGE_WORDS = ("merge", "extend", "assign", "deep", "copy", "defaults", "populate", "mixin")
+# Dấu hiệu tác giả ĐÃ nghĩ tới nguyên mẫu. Đủ một cái là im lặng.
+_PROTO_GUARDS = frozenset(
+    {
+        "hasOwnProperty",
+        "__proto__",
+        "prototype",
+        "constructor",
+        "create",
+        "freeze",
+        "Map",
+        "WeakMap",
+        "defineProperty",
+        "getOwnPropertyNames",
+    }
+)
+
+
 def check(scan: "_Scan") -> None:
     if scan.language == PYTHON:  # pragma: no cover - phía Python đi theo AST
         return
     _privilege_decisions(scan)
     _mass_assignment(scan)
+    _prototype_pollution(scan)
 
 
 # ------------------------------------------------------- quyết định quyền
@@ -324,6 +346,175 @@ def _privilege_literal(scan: "_Scan", window: Tuple[int, int], index: int) -> Op
         if words.normalized_key(token.text) in words.PRIVILEGE_VALUES:
             return token.text
     return None
+
+
+# ------------------------------------------------------- prototype pollution
+
+
+def _prototype_pollution(scan: "_Scan") -> None:
+    if scan.language not in (JAVASCRIPT, TYPESCRIPT):
+        return
+    flat = scan.flat
+    for index, token in enumerate(flat):
+        if token.kind != IDENT or token.text != "for" or index + 1 >= len(flat):
+            continue
+        scan.budget.spend()
+        if flat[index + 1].text != "(":
+            continue
+        close = scan.matching.get(index + 1)
+        if close is None:
+            continue
+        key = _loop_key(scan, index + 2, close)
+        if key is None:
+            continue
+        body = _loop_body(scan, close)
+        if body is None:
+            continue
+        target = _writes_key(scan, body, key)
+        if target is None:
+            continue
+        region = scan._function_at(index)
+        if not _looks_like_a_merge(scan, region):
+            continue
+        if _names_in(scan, region) & _PROTO_GUARDS:
+            continue
+        fed = _request_in_header(scan, index + 2, close) or _fed_request_data(scan, region)
+        if fed is None:
+            continue
+        scan._report(
+            "FSB-PROTO-001",
+            flat[target],
+            flat[target].text,
+            "ghi `%s[%s]` theo khoá của đối tượng nguồn: khoá `__proto__` đi thẳng vào nguyên "
+            "mẫu, nên một thuộc tính bơm vào đó hiện ra ở MỌI đối tượng"
+            % (flat[target].text, key),
+            evidence=(
+                "không thấy phép loại khoá nào trong hàm ( hasOwnProperty, so với "
+                "'__proto__' / 'constructor', hay Object.create(null) )",
+                fed,
+            ),
+        )
+
+
+def _loop_key(scan: "_Scan", start: int, close: int) -> Optional[str]:
+    """`for (const k in src)` và `for (const k of Object.keys(src))` -> tên k."""
+    flat = scan.flat
+    for position in range(start, min(close, len(flat))):
+        text = flat[position].text
+        if text not in ("in", "of") or flat[position].kind != IDENT:
+            continue
+        if text == "of" and not any(
+            flat[rest].text == "keys" for rest in range(position, min(close, len(flat)))
+        ):
+            return None
+        name = flat[position - 1]
+        return name.text if name.kind == IDENT else None
+    return None
+
+
+def _loop_body(scan: "_Scan", close: int) -> Optional[Tuple[int, int]]:
+    flat = scan.flat
+    if close + 1 >= len(flat) or flat[close + 1].text != "{":
+        return None
+    end = scan.matching.get(close + 1)
+    return (close + 2, end) if end is not None else None
+
+
+def _writes_key(scan: "_Scan", body: Tuple[int, int], key: str) -> Optional[int]:
+    """Chỉ số token của đích trong `target[key] = ...`."""
+    flat = scan.flat
+    start, end = body
+    for position in range(start, min(end, len(flat) - 4)):
+        if flat[position].kind != IDENT or flat[position + 1].text != "[":
+            continue
+        if flat[position + 2].kind != IDENT or flat[position + 2].text != key:
+            continue
+        if flat[position + 3].text != "]" or flat[position + 4].text != "=":
+            continue
+        return position
+    return None
+
+
+# Khoá phải CÓ TỪ NGOÀI VÀO mới thành lỗ hổng. Bản đầu của rule bỏ qua điều
+# đó và báo đúng 9 chỗ trên 28 repo thật -- tất cả đều là hàm gộp nội bộ của
+# thư viện đi kèm ( moment, globalize, cldrjs, ace ), nơi nguồn là chính cấu
+# hình của thư viện. Nên giờ phải thấy dữ liệu request hoặc JSON.parse ở ngay
+# đường vào, trong cùng tệp.
+_REQUEST_SOURCES = (
+    ("req", "body"),
+    ("req", "query"),
+    ("req", "params"),
+    ("request", "body"),
+    ("request", "query"),
+    ("ctx", "request"),
+)
+_PARSERS = frozenset({"parse", "parseQuery", "qs"})
+
+
+def _request_in_header(scan: "_Scan", start: int, close: int) -> Optional[str]:
+    """`for (const key in req.body)`: dữ liệu người gửi nằm ngay trong đầu vòng lặp."""
+    flat = scan.flat
+    for position in range(start, min(close - 1, len(flat) - 2)):
+        if flat[position + 1].text != ".":
+            continue
+        if _is_request_pair(flat[position].text, flat[position + 2].text):
+            return "vòng lặp duyệt thẳng khoá của %s.%s" % (
+                flat[position].text,
+                flat[position + 2].text,
+            )
+    return None
+
+
+def _fed_request_data(scan: "_Scan", region: Optional[Tuple[int, int, str]]) -> Optional[str]:
+    """Câu bằng chứng, nếu thấy dữ liệu người gửi đi vào hàm gộp này.
+
+    Hai lối: chính vòng lặp duyệt `req.body`, hoặc hàm gộp được gọi ở đâu đó
+    trong cùng tệp với một đối số là dữ liệu request hay `JSON.parse(...)`.
+    """
+    name = (region[2] if region is not None else "") or ""
+    if name == "":
+        return None
+    for call in scan.calls:
+        if call.parts[-1] != name:
+            continue
+        if region is not None and region[0] <= call.index <= region[1]:
+            continue  # lời gọi đệ quy bên trong chính nó
+        for argument in call.arguments:
+            texts = [token.text for token in argument if token.kind == IDENT]
+            for position in range(1, len(texts)):
+                if _is_request_pair(texts[position - 1], texts[position]):
+                    return "%s() được gọi với %s.%s ở dòng %d" % (
+                        name,
+                        texts[position - 1],
+                        texts[position],
+                        call.anchor.line,
+                    )
+            if "JSON" in texts and _PARSERS & set(texts):
+                return "%s() được gọi với JSON.parse(...) ở dòng %d" % (name, call.anchor.line)
+    return None
+
+
+def _is_request_pair(receiver: str, member: str) -> bool:
+    return (receiver, member) in _REQUEST_SOURCES
+
+
+def _looks_like_a_merge(scan: "_Scan", region: Optional[Tuple[int, int, str]]) -> bool:
+    """Tên hàm nói ra ý định gộp, hoặc hàm gọi lại chính nó để đi vào đối tượng lồng."""
+    if region is None:
+        return False
+    name = region[2] or ""
+    if any(word in name.lower() for word in _MERGE_WORDS):
+        return True
+    if name == "":
+        return False
+    return any(token.text == name for token in scan.flat[region[0] : region[1] + 1])
+
+
+def _names_in(scan: "_Scan", region: Optional[Tuple[int, int, str]]) -> frozenset:
+    start, end = (region[0], region[1]) if region is not None else (0, len(scan.flat))
+    return frozenset(
+        token.text for token in scan.flat[start : end + 1] if token.kind in (IDENT, STRING)
+    )
 
 
 # ---------------------------------------------------------- mass assignment

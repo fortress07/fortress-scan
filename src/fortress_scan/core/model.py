@@ -58,6 +58,10 @@ class Category(str, Enum):
     COOKIE = "cookie"
     ACCESS_CONTROL = "access-control"
     MASS_ASSIGNMENT = "mass-assignment"
+    PERMISSION = "file-permission"
+    TEMP_FILE = "temp-file"
+    DEBUG = "debug"
+    PROTOTYPE = "prototype-pollution"
 
 
 class StepKind(str, Enum):

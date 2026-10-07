@@ -329,3 +329,115 @@ def test_privilege_decision_in_tests_is_demoted_not_hidden():
     test = [f for f in findings(PYTHON, source, "tests/test_views.py") if f.rule_id == "FSB-ACCESS-001"]
     assert len(production) == 1 and len(test) == 1
     assert test[0].confidence < production[0].confidence
+
+
+# --------------------------------------------------------- prototype pollution
+#
+# `obj['__proto__']` trong JavaScript KHÔNG tạo một khoá tên `__proto__`: nó đi
+# thẳng vào nguyên mẫu. Nên một hàm gộp ghi `target[key]` theo khoá của nguồn
+# bơm được thuộc tính vào mọi đối tượng của tiến trình. Rule đòi hàm phải LÀ
+# một hàm gộp ( tên nói vậy, hoặc nó gọi lại chính nó ) -- một vòng lặp
+# `for (k in src)` bất kỳ thì chưa nói gì về ý định.
+
+PROTO_FIRES: List[Tuple[str, str]] = [
+    # Hàm gộp đệ quy, và chỗ gọi nó với body của request nằm trong cùng tệp.
+    (
+        JAVASCRIPT,
+        "function merge(target, source) {\n  for (const key in source) {\n"
+        "    if (typeof source[key] === 'object') {\n"
+        "      target[key] = merge(target[key] || {}, source[key]);\n"
+        "    } else {\n      target[key] = source[key];\n    }\n  }\n  return target;\n}\n"
+        "\napp.post('/settings', (req, res) => {\n  merge(config, req.body);\n"
+        "  res.end();\n});\n",
+    ),
+    # Vòng lặp duyệt thẳng khoá của `req.body`.
+    (
+        JAVASCRIPT,
+        "function mergeSettings(target, req) {\n  for (const key in req.body) {\n"
+        "    target[key] = req.body[key];\n  }\n  return target;\n}\n",
+    ),
+    # JSON.parse cũng là dữ liệu ngoài vào, và nó giữ `__proto__` làm khoá thật.
+    (
+        JAVASCRIPT,
+        "function mergeDeep(target, source) {\n  for (const key in source) {\n"
+        "    target[key] = source[key];\n  }\n  return target;\n}\n"
+        "\nfunction load(raw) {\n  return mergeDeep(defaults, JSON.parse(raw));\n}\n",
+    ),
+    (
+        TYPESCRIPT,
+        "function extendDeep(target: any, source: any) {\n"
+        "  for (const key of Object.keys(source)) {\n    target[key] = source[key];\n  }\n"
+        "  return target;\n}\n\nrouter.post('/x', (req, res) => {\n"
+        "  extendDeep(state, req.body);\n});\n",
+    ),
+]
+
+PROTO_SILENT: List[Tuple[str, str]] = [
+    # Hàm gộp nội bộ của một thư viện: không thấy dữ liệu người gửi nào đi vào.
+    # Bản đầu của rule báo đúng hình này ở 9 chỗ trên 28 repo thật -- moment,
+    # globalize, cldrjs, ace -- và cả 9 đều là báo nhầm.
+    (
+        JAVASCRIPT,
+        "function merge(target, source) {\n  for (const key in source) {\n"
+        "    target[key] = source[key];\n  }\n  return target;\n}\n",
+    ),
+    # moment.js: `hasOwnProp` là bộ bọc riêng của thư viện, không phải
+    # `hasOwnProperty`, nên phép lọc theo nguồn mới là cái giữ nó im lặng.
+    (
+        JAVASCRIPT,
+        "function extend(a, b) {\n  for (var i in b) {\n    if (hasOwnProp(b, i)) {\n"
+        "      a[i] = b[i];\n    }\n  }\n  return a;\n}\n",
+    ),
+    # Chỉ nhận khoá của chính đối tượng.
+    (
+        JAVASCRIPT,
+        "function merge(target, source) {\n  for (const key in source) {\n"
+        "    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;\n"
+        "    target[key] = source[key];\n  }\n  return target;\n}\n"
+        "\napp.post('/s', (req, res) => { merge(config, req.body); });\n",
+    ),
+    # Loại thẳng ba khoá nguy hiểm.
+    (
+        JAVASCRIPT,
+        "function merge(target, source) {\n  for (const key in source) {\n"
+        "    if (key === '__proto__' || key === 'constructor') continue;\n"
+        "    target[key] = source[key];\n  }\n  return target;\n}\n"
+        "\napp.post('/s', (req, res) => { merge(config, req.body); });\n",
+    ),
+    # Không phải hàm gộp, cũng không đệ quy: chưa đủ để nói gì.
+    (
+        JAVASCRIPT,
+        "function render(rows, source) {\n  for (const key in source) {\n"
+        "    rows[key] = source[key];\n  }\n  return rows;\n}\n"
+        "\napp.post('/s', (req, res) => { render(rows, req.body); });\n",
+    ),
+    # `for ... of` trên một mảng thì `item` là GIÁ TRỊ, không phải khoá.
+    (
+        JAVASCRIPT,
+        "function mergeList(target, items) {\n  for (const item of items) {\n"
+        "    target[item] = true;\n  }\n  return target;\n}\n"
+        "\napp.post('/s', (req, res) => { mergeList(target, req.body); });\n",
+    ),
+]
+
+
+@pytest.mark.parametrize("language,source", PROTO_FIRES)
+def test_prototype_pollution_fires(language: str, source: str):
+    assert "FSB-PROTO-001" in rule_ids(language, source), source
+
+
+@pytest.mark.parametrize("language,source", PROTO_SILENT)
+def test_prototype_pollution_stays_silent(language: str, source: str):
+    assert "FSB-PROTO-001" not in rule_ids(language, source), source
+
+
+def test_prototype_finding_names_where_the_untrusted_keys_enter():
+    source = (
+        "function merge(target, source) {\n  for (const key in source) {\n"
+        "    target[key] = source[key];\n  }\n  return target;\n}\n"
+        "\napp.post('/s', (req, res) => {\n  merge(config, req.body);\n});\n"
+    )
+    (finding,) = [f for f in findings(JAVASCRIPT, source) if f.rule_id == "FSB-PROTO-001"]
+    assert finding.confidence is Confidence.MEDIUM
+    assert any("req.body" in part for part in finding.evidence), finding.evidence
+    assert any("dòng 9" in part for part in finding.evidence), finding.evidence
