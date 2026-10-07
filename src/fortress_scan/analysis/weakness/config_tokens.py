@@ -455,7 +455,7 @@ def _java(scan: "_Scan") -> None:
             )
         elif name in _JACKSON_ACTIVATE_TYPING and call.arguments:
             validator = _resolve(scan, call.argument(0))
-            if _permissive_validator(scan, validator):
+            if _permissive_validator(validator):
                 _deser(
                     scan,
                     call.anchor,
@@ -515,7 +515,7 @@ def _java(scan: "_Scan") -> None:
             _deser(scan, token, "AnyTypePermission.ANY", "XStream cho phép mọi kiểu ( AnyTypePermission.ANY )")
 
 
-def _permissive_validator(scan: "_Scan", tokens: Sequence[Token]) -> bool:
+def _permissive_validator(tokens: Sequence[Token]) -> bool:
     if any(token.text == "LaissezFaireSubTypeValidator" for token in tokens):
         return True
     for method in ("allowIfSubType", "allowIfBaseType"):

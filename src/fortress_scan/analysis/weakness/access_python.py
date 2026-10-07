@@ -221,7 +221,7 @@ def _mass_assignment(checks: "PythonWeaknessChecks") -> None:
             continue
         checks.budget.spend()
         member = _whole_request(checks, keyword.value)
-        if member is None or not _writes_a_record(checks, call.func):
+        if member is None or not _writes_a_record(call.func):
             continue
         checks.builder.add(
             "FSB-MASS-001",
@@ -253,7 +253,7 @@ def _whole_request(checks: "PythonWeaknessChecks", node: ast.AST) -> Optional[st
     return member
 
 
-def _writes_a_record(checks: "PythonWeaknessChecks", func: ast.AST) -> bool:
+def _writes_a_record(func: ast.AST) -> bool:
     if isinstance(func, ast.Attribute):
         if func.attr in _MASS_WRITES:
             return True

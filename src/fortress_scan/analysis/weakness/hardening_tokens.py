@@ -375,7 +375,7 @@ def _php_debug(scan: "_Scan") -> None:
         name = scan._string_value(call.argument(0))
         if name != "display_errors":
             continue
-        value = _flag(scan, call.argument(1))
+        value = _flag(call.argument(1))
         if value is not True:
             continue
         scan._report(
@@ -390,7 +390,7 @@ def _php_debug(scan: "_Scan") -> None:
         )
 
 
-def _flag(scan: "_Scan", tokens: Sequence[Token]) -> Optional[bool]:
+def _flag(tokens: Sequence[Token]) -> Optional[bool]:
     meaningful = [token for token in tokens if token.kind != OP]
     if len(meaningful) != 1:
         return None

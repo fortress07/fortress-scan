@@ -450,7 +450,7 @@ def known_token_format(value: str) -> Optional[str]:
     if match is not None:
         user, password, host = match.group(1), match.group(2), match.group(3)
         weak = password.lower() in ("pass", "password", "pwd", "secret", "passwd")
-        # `postgres://saleor:saleor@localhost/saleor`: giá trị mặc định cho máy dev.
+        # máy chủ là localhost, hoặc mật khẩu trùng tên người dùng: mặc định máy dev
         local = host.lower() in _LOCAL_HOSTS or password == user
         if not (weak or local) and not looks_like_placeholder(password) and not password.startswith(("$", "%", "{")):
             return URL_CREDENTIALS

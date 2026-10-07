@@ -238,7 +238,7 @@ def _value_window(raw: Sequence[Token], index: int, limit: int = 25) -> List[Tok
     return collected
 
 
-def _callback_always_true(scan: "_Scan", tokens: Sequence[Token]) -> bool:
+def _callback_always_true(tokens: Sequence[Token]) -> bool:
     """Hàm quyết định origin trả về true mà không kiểm gì.
 
     `(o, cb) => cb(null, true)`, `func(origin string) bool { return true }`,
@@ -324,7 +324,7 @@ def _js_origin_reason(scan: "_Scan", index: int) -> Optional[str]:
         value.kind == IDENT and value.text in ("function", "async")
     ):
         body = _statement_tokens(scan, index + 2, limit=120, stop_at_comma=True)
-        if _callback_always_true(scan, body):
+        if _callback_always_true(body):
             return "hàm quyết định origin trả về true cho mọi origin"
     return None
 
@@ -398,7 +398,7 @@ def _java(scan: "_Scan") -> None:
         name = call.parts[-1]
         if _is_declaration(scan, call):
             continue
-        if name in _SPRING_ORIGIN_PATTERNS and _allows_any_origin(scan, call):
+        if name in _SPRING_ORIGIN_PATTERNS and _allows_any_origin(call):
             patterns.append(call)
         elif name in _SPRING_CREDENTIALS and _texts(call.argument(0)) == ["true"]:
             credentials.append(call)
@@ -434,7 +434,7 @@ def _java(scan: "_Scan") -> None:
         )
 
 
-def _allows_any_origin(scan: "_Scan", call: "_Call") -> bool:
+def _allows_any_origin(call: "_Call") -> bool:
     for argument in call.arguments:
         for token in argument:
             if token.kind == STRING and words.matches_any_origin(token.text) is not None:
@@ -477,7 +477,7 @@ def _csharp(scan: "_Scan") -> None:
         name = call.parts[-1]
         if name == "SetIsOriginAllowed" and not _is_declaration(scan, call):
             body = _statement_tokens(scan, call.open_index + 1, limit=60)
-            if _callback_always_true(scan, body):
+            if _callback_always_true(body):
                 origin_calls.append(call)
         elif name == "AllowCredentials":
             credentials.append(call)
@@ -522,7 +522,7 @@ def _go_origin_func(scan: "_Scan", index: int, token: Token) -> None:
     if index + 1 >= len(flat) or flat[index + 1].text != ":":
         return
     body = _statement_tokens(scan, index + 2, limit=80, stop_at_comma=True)
-    if not _callback_always_true(scan, body):
+    if not _callback_always_true(body):
         return
     braces = _enclosing_braces(scan, index)
     if braces is None:
