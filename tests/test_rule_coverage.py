@@ -9,7 +9,7 @@ import pytest
 from fortress_scan.core.config import Config
 from fortress_scan.core.engine import scan_source
 from fortress_scan.core.registry import all_rules
-from fortress_scan.languages import JAVA, JAVASCRIPT, MANIFEST, PYTHON, SHELL, WORKFLOW
+from fortress_scan.languages import C, JAVA, JAVASCRIPT, MANIFEST, PYTHON, SHELL, WORKFLOW
 
 BIDI_OVERRIDE = chr(0x202E)
 ZERO_WIDTH_SPACE = chr(0x200B)
@@ -119,6 +119,35 @@ TRIGGERS: Dict[str, Tuple[str, str]] = {
         "from flask import request\n"
         "def tim(conn):\n"
         "    return conn.search_s('dc=x', 2, '(uid=' + request.args.get('u') + ')')\n",
+    ),
+    "FSB-MEM-001": (
+        C,
+        "#include <string.h>\n"
+        "void copy(const char *src) {\n    char buf[16];\n    strcpy(buf, src);\n}\n",
+    ),
+    "FSB-MEM-002": (
+        C,
+        "#include <stdio.h>\nvoid log_msg(const char *msg) {\n    printf(msg);\n}\n",
+    ),
+    "FSB-MEM-003": (
+        C,
+        "#include <stdlib.h>\n"
+        "void f(void) {\n    char *p = malloc(8);\n    free(p);\n    p[0] = 'a';\n}\n",
+    ),
+    "FSB-MEM-004": (
+        C,
+        "#include <stdlib.h>\n"
+        "void f(void) {\n    char *p = malloc(8);\n    free(p);\n    free(p);\n}\n",
+    ),
+    "FSB-MEM-005": (
+        C,
+        "#include <stdlib.h>\n#include <unistd.h>\n"
+        "void f(int fd) {\n    unsigned int n;\n    read(fd, &n, sizeof n);\n"
+        "    int *v = malloc(n * sizeof(int));\n}\n",
+    ),
+    "FSB-MEM-006": (
+        C,
+        "void f(void) {\n    int a[10];\n    for (int i = 0; i <= 10; i++)\n        a[i] = 0;\n}\n",
     ),
     "FSB-NOSQL-001": (
         PYTHON,
@@ -314,6 +343,35 @@ SAFE_VARIANTS: Dict[str, Tuple[str, str]] = {
         "def tim(conn):\n"
         "    loc = '(uid=' + ldap.filter.escape_filter_chars(request.args.get('u')) + ')'\n"
         "    return conn.search_s('dc=x', 2, loc)\n",
+    ),
+    "FSB-MEM-001": (
+        C,
+        "#include <stdio.h>\n"
+        "void copy(const char *src) {\n    char buf[16];\n    snprintf(buf, sizeof buf, \"%s\", src);\n}\n",
+    ),
+    "FSB-MEM-002": (
+        C,
+        "#include <stdio.h>\nvoid log_msg(const char *msg) {\n    printf(\"%s\", msg);\n}\n",
+    ),
+    "FSB-MEM-003": (
+        C,
+        "#include <stdlib.h>\n"
+        "void f(void) {\n    char *p = malloc(8);\n    p[0] = 'a';\n    free(p);\n    p = NULL;\n}\n",
+    ),
+    "FSB-MEM-004": (
+        C,
+        "#include <stdlib.h>\n"
+        "void f(void) {\n    char *p = malloc(8);\n    free(p);\n    p = NULL;\n    free(p);\n}\n",
+    ),
+    "FSB-MEM-005": (
+        C,
+        "#include <stdlib.h>\n#include <unistd.h>\n"
+        "void f(int fd) {\n    unsigned int n;\n    read(fd, &n, sizeof n);\n"
+        "    int *v = calloc(n, sizeof(int));\n}\n",
+    ),
+    "FSB-MEM-006": (
+        C,
+        "void f(void) {\n    int a[10];\n    for (int i = 0; i < 10; i++)\n        a[i] = 0;\n}\n",
     ),
     "FSB-NOSQL-001": (
         PYTHON,

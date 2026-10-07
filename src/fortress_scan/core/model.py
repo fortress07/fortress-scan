@@ -50,6 +50,8 @@ class Category(str, Enum):
     SSRF = "ssrf"
     REDIRECT = "redirect"
     HTTP_HEADER = "http-header"
+    # Lỗi an toàn bộ nhớ của mã native ( C, C++, Objective-C ).
+    MEMORY = "memory-safety"
 
 
 class StepKind(str, Enum):

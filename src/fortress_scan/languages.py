@@ -23,6 +23,25 @@ MANIFEST = "manifest"
 # vô hại, nên nó có bộ phân tích riêng.
 WORKFLOW = "workflow"
 
+# Mã native: lỗi bộ nhớ là họ lỗ hổng riêng của nhóm này.
+C = "c"
+CPP = "cpp"
+OBJC = "objective-c"
+
+# Các ngôn ngữ JVM khác Java: cùng thư viện chuẩn, khác cú pháp chuỗi và khai báo.
+KOTLIN = "kotlin"
+SCALA = "scala"
+# Groovy gồm cả Jenkinsfile và script Gradle: `sh "..."` của pipeline là một
+# lệnh shell chạy trên máy build giữ credential.
+GROOVY = "groovy"
+
+# Ứng dụng di động và máy chủ Swift.
+SWIFT = "swift"
+DART = "dart"
+
+# Phoenix / Plug trên BEAM.
+ELIXIR = "elixir"
+
 _EXTENSION_MAP: Dict[str, str] = {
     ".py": PYTHON,
     ".pyw": PYTHON,
@@ -47,10 +66,34 @@ _EXTENSION_MAP: Dict[str, str] = {
     ".java": JAVA,
     ".jsp": JAVA,
     ".jspx": JAVA,
-    ".kt": JAVA,
-    ".kts": JAVA,
-    ".groovy": JAVA,
-    ".scala": JAVA,
+    ".kt": KOTLIN,
+    ".kts": KOTLIN,
+    ".groovy": GROOVY,
+    ".gvy": GROOVY,
+    ".gy": GROOVY,
+    ".gsh": GROOVY,
+    ".gradle": GROOVY,
+    ".jenkinsfile": GROOVY,
+    ".scala": SCALA,
+    ".sc": SCALA,
+    ".swift": SWIFT,
+    ".dart": DART,
+    ".ex": ELIXIR,
+    ".exs": ELIXIR,
+    ".c": C,
+    ".h": C,
+    ".cc": CPP,
+    ".cpp": CPP,
+    ".cxx": CPP,
+    ".c++": CPP,
+    ".hpp": CPP,
+    ".hh": CPP,
+    ".hxx": CPP,
+    ".h++": CPP,
+    ".ipp": CPP,
+    ".inl": CPP,
+    ".tcc": CPP,
+    ".mm": OBJC,
     ".rb": RUBY,
     ".rake": RUBY,
     ".erb": RUBY,
@@ -81,7 +124,15 @@ _FILENAME_MAP: Dict[str, str] = {
     "Rakefile": RUBY,
     "Dockerfile": SHELL,
     "Makefile": SHELL,
+    "Jenkinsfile": GROOVY,
 }
+
+# Tiền tố tên tệp: `Jenkinsfile.release`, `Jenkinsfile-nightly`.
+_FILENAME_PREFIXES: Tuple[Tuple[str, str], ...] = (
+    ("Jenkinsfile.", GROOVY),
+    ("Jenkinsfile-", GROOVY),
+    ("Jenkinsfile_", GROOVY),
+)
 
 _SHEBANG_MAP: Tuple[Tuple[str, str], ...] = (
     ("python", PYTHON),
@@ -93,10 +144,15 @@ _SHEBANG_MAP: Tuple[Tuple[str, str], ...] = (
     ("perl", PERL),
     ("lua", LUA),
     ("pwsh", POWERSHELL),
+    ("elixir", ELIXIR),
     ("sh", SHELL),
 )
 
 _MAX_FILENAME_LENGTH = 255
+
+# `.m` là Objective-C hoặc MATLAB/Octave: chỉ biết được bằng cách nhìn nội dung.
+_OBJC_MARKERS = ("#import", "@interface", "@implementation", "@end", "NSString")
+_SNIFF_BYTES = 16384
 
 # Thư mục chứa định nghĩa workflow của các nền tảng CI dùng cú pháp GitHub
 # Actions. Gitea và Forgejo chạy lại đúng bộ chạy đó, kể cả biểu thức
@@ -147,7 +203,17 @@ def language_from_name(name: str) -> Optional[str]:
     mapped = _FILENAME_MAP.get(name)
     if mapped is not None:
         return mapped
+    mapped = _by_prefix(name)
+    if mapped is not None:
+        return mapped
     return _EXTENSION_MAP.get(PurePath(name).suffix.lower())
+
+
+def _by_prefix(name: str) -> Optional[str]:
+    for prefix, language in _FILENAME_PREFIXES:
+        if name.startswith(prefix) and len(name) > len(prefix):
+            return language
+    return None
 
 
 def detect_language(path: Path, name: Optional[str] = None) -> Optional[str]:
@@ -161,13 +227,30 @@ def detect_language(path: Path, name: Optional[str] = None) -> Optional[str]:
     mapped = _FILENAME_MAP.get(label)
     if mapped is not None:
         return mapped
+    mapped = _by_prefix(label)
+    if mapped is not None:
+        return mapped
     suffix = PurePath(label).suffix.lower()
     mapped = _EXTENSION_MAP.get(suffix)
     if mapped is not None:
         return mapped
+    if suffix == ".m":
+        return _detect_objective_c(path)
     if suffix == "":
         return _detect_by_shebang(path)
     return None
+
+
+def _detect_objective_c(path: Path) -> Optional[str]:
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(_SNIFF_BYTES)
+    except OSError:
+        return None
+    if b"\x00" in head:
+        return None
+    text = head.decode("utf-8", errors="replace")
+    return OBJC if any(marker in text for marker in _OBJC_MARKERS) else None
 
 
 def _detect_by_shebang(path: Path) -> Optional[str]:
@@ -194,7 +277,7 @@ def display_name(language: str) -> str:
         JAVASCRIPT: "JavaScript",
         TYPESCRIPT: "TypeScript",
         PHP: "PHP",
-        JAVA: "Java/JVM",
+        JAVA: "Java",
         RUBY: "Ruby",
         GO: "Go",
         CSHARP: "C#",
@@ -205,4 +288,13 @@ def display_name(language: str) -> str:
         LUA: "Lua",
         MANIFEST: "Package manifest",
         WORKFLOW: "CI workflow",
+        C: "C",
+        CPP: "C++",
+        OBJC: "Objective-C",
+        KOTLIN: "Kotlin",
+        SCALA: "Scala",
+        GROOVY: "Groovy",
+        SWIFT: "Swift",
+        DART: "Dart",
+        ELIXIR: "Elixir",
     }.get(language, language)

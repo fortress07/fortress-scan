@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/35-rule-e05d44?style=flat-square)](#-35-rule-trên-17-họ-injection)
-[![families](https://img.shields.io/badge/17-họ%20injection-fe7d37?style=flat-square)](#-35-rule-trên-17-họ-injection)
-[![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1185-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![rules](https://img.shields.io/badge/41-rule-e05d44?style=flat-square)](#-41-rule-trên-18-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/18-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-41-rule-trên-18-họ-lỗ-hổng)
+[![languages](https://img.shields.io/badge/15-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
+[![tests](https://img.shields.io/badge/1493-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>35</b><br/><sub>rule</sub></td>
-<td align="center"><b>17</b><br/><sub>họ injection</sub></td>
-<td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1185</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>41</b><br/><sub>rule</sub></td>
+<td align="center"><b>18</b><br/><sub>họ lỗ hổng</sub></td>
+<td align="center"><b>21</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
+<td align="center"><b>1493</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="35 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="41 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,7 +90,7 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="35 rule đối chiếu OWASP Top 10:2025 trên năm mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="41 rule đối chiếu OWASP Top 10:2025 trên sáu mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
@@ -98,7 +98,8 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 | 🟣 **A01 Broken Access Control** | `FSB-PATH-001` · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
 | 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) | A05:2021 |
 | 🟢 **A03 Software Supply Chain Failures** | `FSB-SUP-001` · `FSB-SUP-002` · `FSB-CI-003` · `FSB-CI-004` | A08:2021 |
-| 🔴 **A05 Injection** | 20 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression | A03:2021 |
+| 🔴 **A05 Injection** | 21 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression, format string ( `FSB-MEM-002` ) | A03:2021 |
+| 🩷 **A06 Insecure Design** | `FSB-MEM-001` · `FSB-MEM-003` · `FSB-MEM-004` · `FSB-MEM-005` · `FSB-MEM-006` ( lỗi bộ nhớ C/C++ ) | A04:2021 |
 | 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` | A08:2021 |
 
 > [!IMPORTANT]
@@ -142,7 +143,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 35 rule trên 17 họ injection
+## 🔍 41 rule trên 18 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -170,6 +171,7 @@ nên bảng này không thể lệch khỏi code.
 | **Open redirect** | 🟡 `FSB-REDIR-001` | `flask.redirect(request.args['next'])` |
 | **CRLF / header phản hồi** | 🟠 `FSB-HDR-001` | `resp.headers['X-Trace'] = gia_tri_ng` |
 | **Injection trong workflow CI** | 🔴 `FSB-CI-001` · 🔴 `-002` · 🟠 `-003` · 🟡 `-004` | `run: echo "${{ github.event.issue.title }}"` |
+| **An toàn bộ nhớ C / C++** | 🟠 `FSB-MEM-001` · 🟠 `-002` · 🟠 `-003` · 🟠 `-004` · 🟠 `-005` · 🟡 `-006` | `strcpy(buf, argv[1])`, `printf(msg)`, `free(p); p->x`, `malloc(n * size)` |
 
 <sub>🔴 critical · 🟠 high · 🟡 medium · 🔵 low</sub>
 
@@ -183,9 +185,15 @@ Xem đầy đủ bằng `python -m fortress_scan --list-rules`, và giải thíc
 Python có parser AST cộng phân tích luồng dữ liệu nên **sâu hơn hẳn**. Các ngôn ngữ còn lại phân
 tích theo token nên chỉ bắt được dạng "nguồn → biến → sink" trong cùng một hàm.
 
+**C, C++ và Objective-C** có thêm một bộ đọc cấu trúc riêng, viết bằng Python thuần và chạy
+offline: tách hàm, dựng cây câu lệnh ( if, vòng lặp, switch, goto, nhánh `#if` ), tính hằng
+( `#define`, `enum`, `sizeof` ), rồi theo trạng thái "đã giải phóng" qua từng nhánh. Hàm cùng tệp
+được tóm tắt ( hàm nào giải phóng tham số, hàm nào đổ dữ liệu mạng vào tham số ) nên lỗi đi qua
+một hàm bọc vẫn bắt được.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/languages-dark.svg">
-  <img alt="Độ phủ trên 14 ngôn ngữ và định dạng" src="docs/img/languages-light.svg" width="100%">
+  <img alt="Độ phủ trên 21 ngôn ngữ và định dạng" src="docs/img/languages-light.svg" width="100%">
 </picture>
 
 <details>
@@ -204,11 +212,18 @@ tích theo token nên chỉ bắt được dạng "nguồn → biến → sink" 
 | 🐫 **Perl** <sub>CGI `$q->param`</sub> | command, `eval`, `open` hai đối số, SQL ( DBI ), `Storable::thaw` |
 | 💎 **Ruby** <sub>Rails `params`</sub> | command, `eval`, template ( ERB ), `Marshal.load` |
 | ⚙️ **Workflow GitHub Actions** | injection biểu thức, pwn request, action ghim bằng nhãn di động |
-| ☕ **Java / JVM** <sub>Servlet</sub> | command, SQL, expression language ( SpEL ) |
-| 🐹 **Go** <sub>`net/http`</sub> | command, SQL, template |
+| ☕ **Java** <sub>Servlet, Spring MVC, WebFlux, Android</sub> | command, SQL ( JDBC, JPA, `JdbcTemplate`, `rawQuery`, kể cả câu dựng sẵn trong biến hay `StringBuilder` ), SpEL / OGNL / MVEL, `ScriptEngine.eval`, path, redirect ( cả `"redirect:" + url` ), SSRF, XSS, header, LDAP, XPath, deser ( `Yaml.load`, `ObjectInputStream` ), Velocity, `Class.forName` |
+| 🟣 **Kotlin** <sub>Spring, Ktor, Android</sub> | như Java, đọc cả chuỗi `"$x"` / `"""..."""` và `call.parameters` của Ktor |
+| 🔴 **Scala** <sub>Play, Akka HTTP / Pekko, http4s</sub> | command ( `sys.process`, chỉ báo nặng khi đi qua shell ), SQL ( Anorm, phần dán `#$` của Slick, `Fragment.const`, `spark.sql` ), path, redirect, SSRF ( WS, sttp ), XSS ( `Html` ), `ToolBox.eval`, deser, `Class.forName` |
+| 🟢 **Groovy / Jenkinsfile** <sub>Grails, pipeline Jenkins, `.gradle`</sub> | như Java, cộng `sh "..."` nháy kép nhận tham số build hay dữ liệu PR, `"...".execute()`, `Eval` / `GroovyShell`, `SimpleTemplateEngine`, SQL GString nối bằng `+` |
+| 🐹 **Go** <sub>`net/http`, gin, echo, chi</sub> | command, SQL ( kể cả câu dựng sẵn trong biến ), template, path, redirect, SSRF, XSS ( `fmt.Fprintf(w, …)` ), header |
 | 📦 **`package.json`** | script vòng đời tải mã từ xa về chạy |
 | 🐚 **Shell** <sub>bash, sh</sub> | `eval`, biến không đặt trong nháy kép |
-| 🟦 **C#** <sub>ASP.NET</sub> | SQL |
+| 🟦 **C#** <sub>ASP.NET Core, ADO.NET</sub> | SQL ( `SqlCommand`, `CommandText` ), command ( `cmd.exe /c` ), path, redirect, SSRF, XSS ( `Html.Raw` ), header, LDAP, XPath, deser, `CSharpScript`, `Type.GetType` |
+| 🐦 **Swift** <sub>Vapor, Hummingbird, iOS</sub> | SQL ( SQLite C API, GRDB `sql:`, FMDB, SQLKit; `literal:` và `\(bind:)` được coi là tham số bind ), `NSPredicate(format:)`, `NSExpression`, `popen` / `Process` qua `sh -c`, `evaluateScript`, path, redirect, SSRF, WebView ( `loadHTMLString`, `evaluateJavaScript` ), `NSKeyedUnarchiver`, template; nguồn gồm query của Vapor / Hummingbird, deep link `open url:` và tin nhắn `WKScriptMessage` |
+| 🎯 **Dart** <sub>shelf, Dart Frog, Flutter</sub> | command ( `Process.run` chỉ báo nặng khi có `runInShell: true` hay `sh -c` ), SQL ( sqflite `rawQuery`, drift `customSelect`, postgres `Sql(...)` ), path, SSRF, redirect, WebView ( `loadHtmlString`, `runJavaScript` ), `Isolate.spawnUri`; nguồn gồm query của request, deep link go_router và tin nhắn `JavaScriptChannel` |
+| 💧 **Elixir** <sub>Phoenix, LiveView, Ecto</sub> | command ( `:os.cmd`, `System.shell`; `System.cmd` chỉ báo nặng khi đi qua `sh -c` ), SQL ( `Repo.query`, `Ecto.Adapters.SQL.query`, Postgrex ), `Code.eval_string`, `EEx.eval_string`, `:erlang.binary_to_term`, path ( `File.*`, `send_file`, `send_download` ), `redirect(external:)`, XSS ( `raw`, `html` ), SSRF ( HTTPoison, Req, Finch ), `apply` với tên hàm động; nguồn gồm tham số action, `conn.params` và callback của LiveView / Channel, đi qua cả `|>` |
+| ⚙️ **C / C++ / Objective-C** <sub>`.c` `.h` `.cpp` `.hpp` `.mm`</sub> | tràn bộ đệm ( `gets`, `strcpy`, `strcat`, `sprintf`, `scanf("%s")`, `memcpy`/`recv` với độ dài chưa kiểm ), format string, use-after-free, double free, tràn số nguyên vào `malloc`, lệch một; command ( `system`, `popen`, `exec*` ), SQL ( SQLite, MySQL, libpq ), path, `dlopen` |
 
 </details>
 
@@ -232,6 +247,33 @@ lên critical.
 Đọc từ socket qua biến ( `conn.recv()`, `recvfrom`, `recv_into` ) được nhận ở **mức medium**:
 kết nối nội bộ giữa hai dịch vụ của chính mình không nhất thiết là không tin cậy, nên công cụ
 không dám khẳng định cứng như `flask.request`.
+
+</details>
+
+<details>
+<summary><b>📖 C / C++ đo trên mã thật ra sao ( bấm để mở )</b></summary>
+
+<br/>
+
+Các luật bộ nhớ được chỉnh trên mã nguồn thật, không chỉ trên mẫu tự viết. Lượt quét cuối với
+cấu hình mặc định:
+
+| Dự án | Phát hiện `FSB-MEM-*` | Ghi chú |
+| :--- | :---: | :--- |
+| zlib, nginx, tmux, libpcap, leveldb | 0 | |
+| curl | 1 | `docs/examples/ghiper.c`, độ tin cậy thấp: đường chạy cần một điều kiện vòng lặp mà công cụ không suy được |
+| redis | 8 | gồm 2 lỗi cố ý trong bộ test của jemalloc ( `double_free.c`, `uaf.c` ) và các `strcpy`/`sprintf` không kiểm độ dài |
+| stb | 10 | công cụ và test đi kèm, cộng 2 lệnh `strcpy`/`strcat` không kiểm độ dài trong `stb_include.h` |
+| Damn Vulnerable C Program | 54 | 53 trên 10 bản sao của chương trình lỗi; bản đã vá còn 1 ( phép tính `width - height + 100` vẫn quấn vòng được, chỉ phép kiểm phía sau cứu ) |
+
+Dữ liệu ngoài trong C gồm: `recv`, `recvfrom`, `SSL_read` ( mạng ); `fgets`, `scanf`, `read`,
+`std::cin` khi đọc từ **stdin**; và `getenv("QUERY_STRING")` cùng các biến `HTTP_*` của chương
+trình CGI. `argv` và các biến môi trường khác **mặc định tắt** giống bên Python, vì `fopen(argv[1])`
+của một công cụ dòng lệnh là đúng chức năng của nó. Riêng luật bộ nhớ vẫn coi `argv` là đầu vào
+( mức thấp hơn ), vì tràn bộ đệm từ `argv` là lỗi thật với chương trình setuid.
+
+Giới hạn cần biết: không chạy trình tiền xử lý thật ( chỉ giữ một nhánh `#if` ), không có bảng
+kiểu đầy đủ, không phân tích bí danh con trỏ, và tóm tắt hàm chỉ trong cùng một tệp.
 
 </details>
 
@@ -508,7 +550,7 @@ Khi gõ lệnh quét thì có sáu bước xảy ra:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/analyzers-dark.svg">
-  <img alt="So sánh bộ phân tích AST cho Python với bộ quét theo token cho 13 ngôn ngữ còn lại" src="docs/img/analyzers-light.svg" width="100%">
+  <img alt="So sánh bộ phân tích AST cho Python với bộ quét theo token cho 19 ngôn ngữ còn lại" src="docs/img/analyzers-light.svg" width="100%">
 </picture>
 
 Rẽ nhánh thì hai nhánh được **gộp lại** ( nhiễm ở một nhánh là đủ để cảnh báo ), vòng lặp chỉ chạy
@@ -691,9 +733,9 @@ curl http://example.com/#frag; MSG="# fortress-scan: ignore-file" # Shell
 
 | Ngôn ngữ | Được coi là mở chú thích |
 | :--- | :--- |
-| Python, Ruby | `#` |
+| Python, Ruby, Elixir | `#` |
 | Shell | `#`, và phải đứng đầu một từ |
-| JavaScript, TypeScript, Java/JVM, C#, Go | `//`, `/* */` |
+| JavaScript, TypeScript, Java, Kotlin, Scala, Groovy, C#, Go, Swift, Dart | `//`, `/* */` |
 | PHP | `//`, `#`, `/* */` |
 | Lua | `--` |
 

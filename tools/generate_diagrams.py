@@ -575,20 +575,22 @@ def diagram_rules(theme: str) -> str:
 
 
 def diagram_owasp(theme: str) -> str:
-    cv = Canvas(392, theme)
+    counts = Counter(rule.owasp[0] for rule in all_rules())
+    rows = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    # Mỗi mục một hàng 58px; thêm mục mới ( A06 cho lỗi bộ nhớ ) thì hình tự cao lên.
+    cv = Canvas(76 + 58 * len(rows) + 26, theme)
     c = cv.c
     total = len(list(all_rules()))
     cv.title(
         "Đối chiếu OWASP Top 10:2025",
-        "Trước đây cả %d rule bị gộp vào đúng hai mục của bản 2021." % total,
+        "%d rule trải trên %d mục của bản 2025, mỗi rule giữ kèm nhãn 2021." % (total, len(rows)),
     )
 
-    counts = Counter(rule.owasp[0] for rule in all_rules())
-    rows = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     colors = {"A01": c["purple"], "A02": c["blue"], "A03": c["green"],
-              "A05": c["red"], "A08": c["orange"]}
+              "A05": c["red"], "A06": c["pink"], "A08": c["orange"]}
     legacy = {"A01": "A01:2021 · A10:2021 (SSRF)", "A02": "A05:2021",
-              "A03": "A08:2021", "A05": "A03:2021", "A08": "A08:2021"}
+              "A03": "A08:2021", "A05": "A03:2021", "A06": "A04:2021",
+              "A08": "A08:2021"}
 
     top = max(count for _, count in rows)
     bar_x, bar_w = 470, 250
@@ -619,24 +621,33 @@ def diagram_owasp(theme: str) -> str:
 
 LANGUAGE_COVERAGE: Sequence[Tuple[str, str, int, str]] = (
     ("Python", "AST + luồng dữ liệu, xuyên file", 27, "full"),
+    ("C / C++ / Objective-C", "6 luật bộ nhớ + lệnh, SQL, path, dlopen", 5, "native"),
+    # Số họ rule của Java, Kotlin, Groovy, Scala, Go, C#, Swift, Dart, Elixir đếm từ
+    # tests/test_language_family_coverage.py: mỗi họ có một mẫu bắt được thật.
+    ("Java", "Servlet, Spring, Android", 14, "token"),
+    ("Kotlin", "Spring, Ktor, Android", 14, "token"),
+    ("Groovy / Jenkinsfile", "Grails, pipeline Jenkins", 14, "token"),
+    ("C#", "ASP.NET Core, ADO.NET", 12, "token"),
+    ("Swift", "Vapor, Hummingbird, iOS", 11, "token"),
+    ("Elixir", "Phoenix, LiveView, Ecto", 11, "token"),
     ("JavaScript / TypeScript", "Express, Node", 9, "token"),
+    ("Scala", "Play, Akka HTTP, Slick", 9, "token"),
+    ("Go", "net/http, gin, echo", 8, "token"),
     ("PHP", "$_GET / $_POST / $_COOKIE", 8, "token"),
     ("Lua", "OpenResty ngx.*", 7, "token"),
+    ("Dart", "shelf, Dart Frog, Flutter", 7, "token"),
     ("Rust", "actix, axum", 6, "token"),
     ("PowerShell", "script build, script CI", 6, "token"),
     ("Perl", "CGI $q->param", 5, "token"),
     ("Workflow GitHub Actions", ".github/workflows/*.yml", 4, "token"),
     ("Ruby", "Rails params", 4, "token"),
-    ("Java / JVM", "Servlet getParameter", 3, "token"),
-    ("Go", "net/http + database/sql", 3, "token"),
     ("Shell", "bash, sh", 2, "token"),
     ("package.json", "script vòng đời", 2, "token"),
-    ("C#", "ASP.NET Request.Query", 1, "token"),
 )
 
 
 def diagram_languages(theme: str) -> str:
-    cv = Canvas(536, theme)
+    cv = Canvas(126 + len(LANGUAGE_COVERAGE) * 30, theme)
     c = cv.c
     cv.title(
         "Độ phủ trên %d ngôn ngữ và định dạng" % len(LANGUAGE_COVERAGE),
@@ -645,12 +656,13 @@ def diagram_languages(theme: str) -> str:
 
     cv.chip(PAD, 64, "AST + luồng dữ liệu, theo được taint xuyên file", c["green"])
     cv.chip(PAD + 320, 64, "Lexer theo token, dừng ở ranh giới một hàm", c["blue"])
+    cv.chip(PAD + 606, 64, "Cây lệnh C, luồng giải phóng theo nhánh", c["orange"])
 
     top = max(count for _, _, count, _ in LANGUAGE_COVERAGE)
     bar_x, bar_w = 420, 300
     for index, (name, detail, count, kind) in enumerate(LANGUAGE_COVERAGE):
         y = 100 + index * 30
-        color = c["green"] if kind == "full" else c["blue"]
+        color = {"full": c["green"], "native": c["orange"]}.get(kind, c["blue"])
         if index % 2 == 0:
             cv.rect(PAD, y - 4, W - PAD * 2, 27, c["grid"], rx=7, opacity="0.16")
         cv.circle(PAD + 14, y + 9, 4, color, opacity="0.90")
@@ -659,7 +671,7 @@ def diagram_languages(theme: str) -> str:
         cv.track(bar_x, y + 3, bar_w, 12, c["grid"])
         cv.rect(bar_x, y + 3, max(7, bar_w * count / top), 12, color, rx=6,
                 opacity="0.85")
-        suffix = " / 35 rule" if kind == "full" else " họ rule"
+        suffix = " / %d rule" % len(list(all_rules())) if kind == "full" else " họ rule"
         cv.text(bar_x + bar_w + 12, y + 13, "%d%s" % (count, suffix), size=10.5,
                 fill=color, weight="700")
 
@@ -686,10 +698,11 @@ def diagram_analyzers(theme: str) -> str:
             ("Cách đọc mã", "dựng cây cú pháp đầy đủ"),
             ("Theo dữ liệu qua", "if, vòng lặp, try, và hàm khác"),
             ("Ranh giới tệp", "vượt qua được, có chỉ mục dự án"),
-            ("Phủ được", "27 / 35 rule"),
+            ("Phủ được", "27 / %d rule" % len(list(all_rules()))),
             ("Hàm bọc tự viết", "tự học được, kể cả khác tệp"),
         ]),
-        ("13 ngôn ngữ còn lại", c["blue"], "Lexer theo token", [
+        ("%d ngôn ngữ còn lại" % sum(kind == "token" for *_, kind in LANGUAGE_COVERAGE),
+         c["blue"], "Lexer theo token", [
             ("Cách đọc mã", "tách token, lexer riêng từng ngôn ngữ"),
             ("Theo dữ liệu qua", "trong phạm vi một hàm"),
             ("Ranh giới tệp", "dừng lại ở đó"),

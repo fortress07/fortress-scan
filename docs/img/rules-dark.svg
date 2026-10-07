@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 432' width='900' height='432' role='img'><defs><marker id='adark' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6' markerHeight='6' orient='auto-start-reverse'><path d='M 0 0 L 10 5 L 0 10 z' fill='#a3aec6' opacity='0.75'/></marker></defs>
-<text x='24' y='30' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14.5' fill='#e9eef8' text-anchor='start' font-weight='700'>35 rule, nhìn theo hai chiều</text>
+<text x='24' y='30' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14.5' fill='#e9eef8' text-anchor='start' font-weight='700'>41 rule, nhìn theo hai chiều</text>
 <text x='24' y='52' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Số lấy thẳng từ core.registry, nên hình không lệch khỏi mã được.</text>
 <rect x='24' y='76' width='414' height='322' rx='10' fill='#2b3546' opacity='0.11'/>
 <rect x='24' y='76' width='414' height='322' rx='10' fill='none' stroke='#2b3546' stroke-width='1.4' opacity='0.50'/>
@@ -7,61 +7,61 @@
 <text x='44' y='142' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#ff8585' text-anchor='start' font-weight='700'>critical</text>
 <text x='154' y='142' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>10 rule</text>
 <rect x='44' y='152' width='250' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='44' y='152' width='208.3' height='12' rx='6' fill='#ff8585' opacity='0.85'/>
-<text x='306' y='162' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>29%</text>
+<rect x='44' y='152' width='147.1' height='12' rx='6' fill='#ff8585' opacity='0.85'/>
+<text x='306' y='162' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>24%</text>
 <text x='44' y='208' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#ffc255' text-anchor='start' font-weight='700'>high</text>
-<text x='154' y='208' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>12 rule</text>
+<text x='154' y='208' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>17 rule</text>
 <rect x='44' y='218' width='250' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='44' y='218' width='250' height='12' rx='6' fill='#ffc255' opacity='0.85'/>
-<text x='306' y='228' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>34%</text>
+<text x='306' y='228' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>41%</text>
 <text x='44' y='274' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#ffd479' text-anchor='start' font-weight='700'>medium</text>
-<text x='154' y='274' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>10 rule</text>
+<text x='154' y='274' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>11 rule</text>
 <rect x='44' y='284' width='250' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='44' y='284' width='208.3' height='12' rx='6' fill='#ffd479' opacity='0.85'/>
-<text x='306' y='294' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>29%</text>
+<rect x='44' y='284' width='161.8' height='12' rx='6' fill='#ffd479' opacity='0.85'/>
+<text x='306' y='294' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>27%</text>
 <text x='44' y='340' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#93a2ff' text-anchor='start' font-weight='700'>low</text>
 <text x='154' y='340' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>3 rule</text>
 <rect x='44' y='350' width='250' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='44' y='350' width='62.5' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='306' y='360' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>9%</text>
+<rect x='44' y='350' width='44.1' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='306' y='360' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>7%</text>
 <rect x='452' y='76' width='414' height='322' rx='10' fill='#2b3546' opacity='0.11'/>
 <rect x='452' y='76' width='414' height='322' rx='10' fill='none' stroke='#2b3546' stroke-width='1.4' opacity='0.50'/>
 <text x='472' y='102' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='12' fill='#e9eef8' text-anchor='start' font-weight='700'>Theo họ lỗ hổng</text>
-<text x='472' y='136' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>os-command</text>
+<text x='472' y='136' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>memory-safety</text>
 <rect x='652' y='126' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='126' width='68.2' height='12' rx='6' fill='#ff8585' opacity='0.85'/>
-<text x='814' y='136' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#ff8585' text-anchor='start' font-weight='700'>5</text>
-<text x='472' y='166' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>supply-chain</text>
+<rect x='652' y='126' width='69.2' height='12' rx='6' fill='#ff8585' opacity='0.85'/>
+<text x='814' y='136' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#ff8585' text-anchor='start' font-weight='700'>6</text>
+<text x='472' y='166' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>os-command</text>
 <rect x='652' y='156' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='156' width='54.5' height='12' rx='6' fill='#ffc255' opacity='0.85'/>
-<text x='814' y='166' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#ffc255' text-anchor='start' font-weight='700'>4</text>
-<text x='472' y='196' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>unicode</text>
+<rect x='652' y='156' width='57.7' height='12' rx='6' fill='#ffc255' opacity='0.85'/>
+<text x='814' y='166' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#ffc255' text-anchor='start' font-weight='700'>5</text>
+<text x='472' y='196' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>supply-chain</text>
 <rect x='652' y='186' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='186' width='54.5' height='12' rx='6' fill='#ffd479' opacity='0.85'/>
+<rect x='652' y='186' width='46.2' height='12' rx='6' fill='#ffd479' opacity='0.85'/>
 <text x='814' y='196' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#ffd479' text-anchor='start' font-weight='700'>4</text>
-<text x='472' y='226' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>code-execution</text>
+<text x='472' y='226' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>unicode</text>
 <rect x='652' y='216' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='216' width='40.9' height='12' rx='6' fill='#4cd8c2' opacity='0.85'/>
-<text x='814' y='226' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#4cd8c2' text-anchor='start' font-weight='700'>3</text>
-<text x='472' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>deserialization</text>
+<rect x='652' y='216' width='46.2' height='12' rx='6' fill='#4cd8c2' opacity='0.85'/>
+<text x='814' y='226' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#4cd8c2' text-anchor='start' font-weight='700'>4</text>
+<text x='472' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>code-execution</text>
 <rect x='652' y='246' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='246' width='27.3' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='814' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>2</text>
-<text x='472' y='286' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>dynamic-import</text>
+<rect x='652' y='246' width='34.6' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='814' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>3</text>
+<text x='472' y='286' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>deserialization</text>
 <rect x='652' y='276' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='276' width='27.3' height='12' rx='6' fill='#d3a4ff' opacity='0.85'/>
+<rect x='652' y='276' width='23.1' height='12' rx='6' fill='#d3a4ff' opacity='0.85'/>
 <text x='814' y='286' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#d3a4ff' text-anchor='start' font-weight='700'>2</text>
-<text x='472' y='316' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>sql</text>
+<text x='472' y='316' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>dynamic-import</text>
 <rect x='652' y='306' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='306' width='27.3' height='12' rx='6' fill='#ff8ac0' opacity='0.85'/>
+<rect x='652' y='306' width='23.1' height='12' rx='6' fill='#ff8ac0' opacity='0.85'/>
 <text x='814' y='316' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#ff8ac0' text-anchor='start' font-weight='700'>2</text>
-<text x='472' y='346' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>template</text>
+<text x='472' y='346' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>sql</text>
 <rect x='652' y='336' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='652' y='336' width='27.3' height='12' rx='6' fill='#e9eef8' opacity='0.85'/>
+<rect x='652' y='336' width='23.1' height='12' rx='6' fill='#e9eef8' opacity='0.85'/>
 <text x='814' y='346' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='700'>2</text>
-<text x='472' y='376' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>còn lại (11 họ)</text>
+<text x='472' y='376' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>còn lại (12 họ)</text>
 <rect x='652' y='366' width='150' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='652' y='366' width='150' height='12' rx='6' fill='#a3aec6' opacity='0.85'/>
-<text x='814' y='376' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='700'>11</text>
+<text x='814' y='376' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='700'>13</text>
 <text x='24' y='418' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Mỗi rule đều có mẫu mã nguồn thật làm nó bắn, và với đa số là một mẫu an toàn tương ứng để chắc nó không kêu bừa.</text>
 </svg>

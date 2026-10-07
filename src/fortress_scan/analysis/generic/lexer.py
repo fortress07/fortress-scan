@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Tuple
 
 from ...core.budget import Budget
@@ -24,6 +24,12 @@ class Token:
     in_string: bool = False
     interpolated: bool = False
     quote: str = ""
+    # Tiền tố dính liền chuỗi ( `sql` của `sql"..."` ): quyết định chuỗi này là
+    # một câu lệnh tham số hoá chứ không phải chữ thường.
+    prefix: str = ""
+    # Vùng nội suy ( từ dấu mở tới hết dấu đóng ) trong thân chuỗi chứa nó:
+    # phần chữ trước vùng này là phần cố định của giá trị.
+    span: Tuple[int, int] = (-1, -1)
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,31 @@ class LexerProfile:
     heredoc_bare_adjacent: bool = False
     escape_character: str = "\\"
     raw_quotes: Tuple[str, ...] = ()
+    # Chuỗi ba nháy ( Kotlin, Scala, Groovy, Swift, Dart, Julia, Elixir ): một
+    # dấu `"` đơn lẻ bên trong không đóng chuỗi. ( dấu mở, có nội suy không ).
+    triple_quotes: Tuple[Tuple[str, bool], ...] = ()
+    # VB.NET: `""` trong chuỗi là một dấu nháy, không phải đóng rồi mở lại.
+    doubled_quote_escape: bool = False
+    # Kotlin, Groovy, Dart, Scala: `"$host"` nhắc tới biến `host`, không phải
+    # `$host` như shell hay PHP. Chữ số sau `$` ở đó là chữ thường, không nội suy.
+    dollar_bare_name: bool = False
+    # Tiền tố dính liền dấu nháy quyết định chuỗi có nội suy không: `s"..."` của
+    # Scala nội suy, `sql"..."` của Slick/doobie thì biến các giá trị thành tham
+    # số bind. ( tiền tố, có nội suy không ).
+    string_prefixes: Tuple[Tuple[str, bool], ...] = ()
+    # Scala: chuỗi không có tiền tố thì `$x` chỉ là chữ.
+    prefix_only_interpolation: bool = False
+    # `sql"... #$cot"` của Slick: trong chuỗi tham số hoá, dấu này DÁN giá trị
+    # nguyên văn vào câu lệnh, tức là đúng chỗ còn lại của SQL injection.
+    splice_marker: str = ""
+    # Elixir: `~s(...)`, `~r/.../i`, `~S"""..."""`. Chữ thường nội suy `#{}`,
+    # chữ hoa giữ nguyên văn.
+    sigils: bool = False
+    # Elixir: `?a`, `?#`, `?'` là một ký tự, không mở chú thích hay chuỗi.
+    question_char_literals: bool = False
+    # Elixir / Ruby / Julia: `File.read!`, `valid?` - ký tự này chỉ được đứng
+    # CUỐI tên, và không phải khi nó là nửa đầu của `!=`.
+    identifier_suffixes: str = ""
     multichar_operators: Tuple[str, ...] = (
         "===",
         "!==",
@@ -92,6 +123,7 @@ class Tokenizer:
         # sai một ký tự so với lời gọi thật.
         self._column = 0
         self._tokens: List[Token] = []
+        self._prefix = ""
 
     def run(self) -> List[Token]:
         while self._index < self._length:
@@ -110,7 +142,13 @@ class Tokenizer:
                 continue
             if self._read_heredoc():
                 continue
+            if self._read_triple_string():
+                continue
             if self._read_string():
+                continue
+            if self._profile.sigils and char == "~" and self._read_sigil():
+                continue
+            if self._profile.question_char_literals and char == "?" and self._read_char_literal():
                 continue
             if char.isdigit():
                 self._read_number()
@@ -122,16 +160,18 @@ class Tokenizer:
         return self._tokens
 
     def _emit(self, kind: str, text: str, in_string: bool = False, quote: str = "") -> None:
-        self._tokens.append(
-            Token(
-                kind=kind,
-                text=text,
-                line=self._line,
-                column=self._column,
-                in_string=in_string,
-                quote=quote,
-            )
+        token = Token(
+            kind=kind,
+            text=text,
+            line=self._line,
+            column=self._column,
+            in_string=in_string,
+            quote=quote,
         )
+        if kind == STRING and self._prefix:
+            token = replace(token, prefix=self._prefix)
+            self._prefix = ""
+        self._tokens.append(token)
 
     def _advance(self, count: int) -> None:
         self._index += count
@@ -239,6 +279,58 @@ class Tokenizer:
             cursor = end_of_line + 1
         return self._length
 
+    def _prefix_interpolates(self, default: bool) -> Tuple[bool, bool]:
+        """`s"..."` / `sql"..."`: tiền tố dính liền dấu nháy quyết định nội suy.
+
+        Trả về ( cú pháp có vùng nội suy không, có phát token nội suy không ).
+        `sql"... ${id}"` vẫn có vùng `${}` phải nhảy qua, chỉ là giá trị trong đó
+        thành tham số bind chứ không dán vào chuỗi.
+
+        Token tiền tố bị bỏ khỏi luồng: nó là một phần của literal, để lại thì
+        `s"SELECT 1"` trông như một biểu thức có tên biến chứ không phải hằng.
+        """
+        profile = self._profile
+        if not profile.string_prefixes:
+            return default, default
+        if self._tokens:
+            last = self._tokens[-1]
+            if (
+                not last.in_string
+                and last.kind in (IDENT, OP)
+                and last.line == self._line
+                and last.column + len(last.text) == self._column
+            ):
+                for prefix, interpolating in profile.string_prefixes:
+                    if last.text == prefix:
+                        self._tokens.pop()
+                        self._prefix = prefix
+                        return default, default and interpolating
+        plain = default and not profile.prefix_only_interpolation
+        return plain, plain
+
+    def _read_triple_string(self) -> bool:
+        for opener, interpolating in self._profile.triple_quotes:
+            if not self._source.startswith(opener, self._index):
+                continue
+            syntax, emit = self._prefix_interpolates(interpolating)
+            end = self._source.find(opener, self._index + len(opener))
+            stop = self._length if end == -1 else end + len(opener)
+            # Swift/Kotlin cho phép thêm nháy sát dấu đóng: `""""a""""`.
+            while stop < self._length and self._source[stop] == opener[0] and end != -1:
+                stop += 1
+            body_end = self._length if end == -1 else stop - len(opener)
+            body = self._source[self._index + len(opener) : body_end][:_MAX_STRING_LENGTH]
+            segment = self._source[self._index : stop]
+            self._emit(STRING, body, quote=opener[0])
+            if emit:
+                self._scan_interpolations(body)
+            elif syntax:
+                self._scan_splices(body)
+            self._index = stop
+            self._advance_over(segment)
+            return True
+        return False
+
     def _read_string(self) -> bool:
         char = self._source[self._index]
         profile = self._profile
@@ -246,26 +338,39 @@ class Tokenizer:
             if char not in profile.raw_quotes:
                 return False
         interpolating = char in profile.interpolating_quotes
+        emit = interpolating
+        if interpolating:
+            interpolating, emit = self._prefix_interpolates(True)
         raw = char in profile.raw_quotes
         cursor = self._index + 1
         pieces: List[str] = []
         while cursor < self._length:
             current = self._source[cursor]
-            if not raw and current == profile.escape_character and cursor + 1 < self._length:
-                pieces.append(self._source[cursor + 1])
-                cursor += 2
-                continue
             if interpolating and not raw:
                 # Vùng nội suy là mã, nên nó có thể chứa một chuỗi lồng dùng
                 # đúng dấu nháy đang mở: `outer ${`inner`} end`. Nhảy qua trọn
                 # vùng đó, nếu không thì dấu nháy mở của chuỗi lồng bị hiểu là
                 # dấu đóng của chuỗi ngoài, và phần ruột chuỗi rơi ra ngoài
-                # thành mã.
+                # thành mã. Kiểm TRƯỚC ký tự thoát: dấu mở `\(` của Swift bắt
+                # đầu bằng chính ký tự thoát.
                 span = self._interpolation_span(cursor)
                 if span != -1:
                     pieces.append(self._source[cursor:span])
                     cursor = span
                     continue
+            if not raw and current == profile.escape_character and cursor + 1 < self._length:
+                pieces.append(self._source[cursor + 1])
+                cursor += 2
+                continue
+            if (
+                profile.doubled_quote_escape
+                and current == char
+                and cursor + 1 < self._length
+                and self._source[cursor + 1] == char
+            ):
+                pieces.append(char)
+                cursor += 2
+                continue
             if current == char:
                 cursor += 1
                 break
@@ -274,10 +379,83 @@ class Tokenizer:
         body = "".join(pieces)[:_MAX_STRING_LENGTH]
         segment = self._source[self._index : cursor]
         self._emit(STRING, body, quote=char)
-        if interpolating and not raw:
+        if emit and not raw:
             self._scan_interpolations(body)
+        elif interpolating and not raw:
+            self._scan_splices(body)
         self._index = cursor
         self._advance_over(segment)
+        return True
+
+    def _read_sigil(self) -> bool:
+        """`~s(SELECT #{x})`, `~r/a#b/i`, `~w[a b]`, `~H\"\"\"...\"\"\"`."""
+        source = self._source
+        cursor = self._index + 1
+        if cursor >= self._length or not source[cursor].isalpha():
+            return False
+        if source[cursor].islower():
+            letters_end = cursor + 1
+        else:
+            letters_end = cursor
+            while letters_end < self._length and (source[letters_end].isupper() or source[letters_end].isdigit()):
+                letters_end += 1
+        if letters_end >= self._length:
+            return False
+        letters = source[cursor:letters_end]
+        interpolating = letters.islower()
+        opener = source[letters_end]
+        if source.startswith('"""', letters_end) or source.startswith("'''", letters_end):
+            delimiter = source[letters_end : letters_end + 3]
+            end = source.find(delimiter, letters_end + 3)
+            body_start = letters_end + 3
+            body_end = self._length if end == -1 else end
+            stop = self._length if end == -1 else end + 3
+        else:
+            closer = _SIGIL_PAIRS.get(opener, opener)
+            if opener not in _SIGIL_DELIMITERS:
+                return False
+            body_start = letters_end + 1
+            stop = body_start
+            while stop < self._length:
+                current = source[stop]
+                if interpolating:
+                    span = self._interpolation_span(stop)
+                    if span != -1:
+                        stop = span
+                        continue
+                if current == "\\" and stop + 1 < self._length:
+                    stop += 2
+                    continue
+                if current == closer:
+                    break
+                stop += 1
+            body_end = stop
+            stop = min(self._length, stop + 1)
+        # Bộ sửa đổi dính sau dấu đóng: `~r/x/iu`.
+        while stop < self._length and source[stop].isalpha():
+            stop += 1
+        body = source[body_start:body_end][:_MAX_STRING_LENGTH]
+        segment = source[self._index : stop]
+        self._prefix = "~" + letters
+        self._emit(STRING, body, quote=opener)
+        if interpolating:
+            self._scan_interpolations(body)
+        self._index = stop
+        self._advance_over(segment)
+        return True
+
+    def _read_char_literal(self) -> bool:
+        """`?a`, `?\\n`, `?#` của Elixir là một số nguyên, không phải toán tử."""
+        cursor = self._index + 1
+        if cursor >= self._length or self._source[cursor] in " \t\r\n":
+            return False
+        if self._tokens:
+            last = self._tokens[-1]
+            if last.kind in (IDENT, NUMBER) and last.line == self._line and last.column + len(last.text) == self._column:
+                return False
+        width = 3 if self._source[cursor] == "\\" and cursor + 1 < self._length else 2
+        self._emit(NUMBER, self._source[self._index : self._index + width])
+        self._advance(width)
         return True
 
     def _skip_quoted(self, index: int) -> int:
@@ -353,12 +531,38 @@ class Tokenizer:
                 if end == -1:
                     break
                 inner = body[position + len(opener) : end]
-                self._emit_inner(inner)
+                self._emit_inner(inner, (position, end + len(closer)))
                 start = end + len(closer)
         if profile.dollar_interpolation:
             self._scan_dollar(body)
 
+    def _scan_splices(self, body: str) -> None:
+        """Chuỗi tham số hoá chỉ còn dấu dán nguyên văn ( `#$x`, `#${x}` ) là nguy hiểm."""
+        marker = self._profile.splice_marker
+        if not marker or self._depth >= _MAX_INTERPOLATION_DEPTH:
+            return
+        start = 0
+        while True:
+            position = body.find(marker, start)
+            if position == -1:
+                return
+            cursor = position + len(marker)
+            if cursor < len(body) and body[cursor] == "{":
+                end = _matching_index(body, cursor + 1, "{", "}")
+                if end == -1:
+                    return
+                self._emit_inner(body[cursor + 1 : end], (position, end + 1))
+                start = end + 1
+                continue
+            end = cursor
+            while end < len(body) and _is_identifier_part(body[end], self._profile):
+                end += 1
+            if end > cursor:
+                self._emit_expansion(body[cursor:end], (position, end))
+            start = max(end, cursor)
+
     def _scan_dollar(self, body: str) -> None:
+        profile = self._profile
         index = 0
         length = len(body)
         while index < length:
@@ -367,33 +571,40 @@ class Tokenizer:
                 return
             following = body[position + 1]
             if following == "{":
-                end = body.find("}", position + 2)
+                if profile.dollar_bare_name:
+                    end = _matching_index(body, position + 2, "{", "}")
+                else:
+                    end = body.find("}", position + 2)
                 if end == -1:
                     return
-                self._emit_inner(body[position + 2 : end])
+                # `${...}` đã được phát ở vòng interpolation_markers nếu có khai.
+                if ("${", "}") not in profile.interpolation_markers:
+                    self._emit_inner(body[position + 2 : end], (position, end + 1))
                 index = end + 1
                 continue
             if following == "(":
                 end = _matching_index(body, position + 2, "(", ")")
                 if end == -1:
                     return
-                self._emit_inner(body[position + 2 : end])
+                self._emit_inner(body[position + 2 : end], (position, end + 1))
                 index = end + 1
                 continue
             if following.isdigit() or following in "@*#?":
-                self._emit_expansion(body[position : position + 2])
+                if not profile.dollar_bare_name:
+                    self._emit_expansion(body[position : position + 2], (position, position + 2))
                 index = position + 2
                 continue
-            if _is_identifier_start(following, self._profile):
+            if _is_identifier_start(following, self._profile) and not (profile.dollar_bare_name and following == "$"):
                 cursor = position + 1
                 while cursor < length and _is_identifier_part(body[cursor], self._profile):
                     cursor += 1
-                self._emit_expansion(body[position:cursor])
+                start = position + 1 if profile.dollar_bare_name else position
+                self._emit_expansion(body[start:cursor], (position, cursor))
                 index = cursor
                 continue
             index = position + 1
 
-    def _emit_expansion(self, text: str) -> None:
+    def _emit_expansion(self, text: str, span: Tuple[int, int] = (-1, -1)) -> None:
         self._tokens.append(
             Token(
                 kind=IDENT,
@@ -402,10 +613,11 @@ class Tokenizer:
                 column=self._column,
                 in_string=True,
                 interpolated=True,
+                span=span,
             )
         )
 
-    def _emit_inner(self, inner: str) -> None:
+    def _emit_inner(self, inner: str, span: Tuple[int, int] = (-1, -1)) -> None:
         if not inner.strip():
             return
         nested = Tokenizer(inner, self._profile, self._budget, self._depth + 1)
@@ -422,6 +634,7 @@ class Tokenizer:
                     column=self._column,
                     in_string=True,
                     interpolated=True,
+                    span=span,
                 )
             )
 
@@ -438,6 +651,12 @@ class Tokenizer:
         cursor = self._index
         while cursor < self._length and _is_identifier_part(self._source[cursor], self._profile):
             cursor += 1
+        if (
+            cursor < self._length
+            and self._source[cursor] in self._profile.identifier_suffixes
+            and self._source[cursor + 1 : cursor + 2] != "="
+        ):
+            cursor += 1
         self._emit(IDENT, self._source[self._index : cursor])
         self._advance(cursor - self._index)
 
@@ -449,6 +668,10 @@ class Tokenizer:
                 return
         self._emit(OP, self._source[self._index])
         self._advance(1)
+
+
+_SIGIL_PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+_SIGIL_DELIMITERS = frozenset("([{<\"'/|")
 
 
 def _matching_index(text: str, start: int, opener: str, closer: str) -> int:
