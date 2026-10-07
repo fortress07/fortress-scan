@@ -10,6 +10,7 @@ from fortress_scan.core.config import Config
 from fortress_scan.core.engine import scan_source
 from fortress_scan.core.registry import all_rules
 from fortress_scan.languages import (
+    CSHARP,
     IR_ARTIFACT,
     JAVA,
     JAVASCRIPT,
@@ -425,6 +426,158 @@ SAFE_VARIANTS: Dict[str, Tuple[str, str]] = {
 }
 
 
+# Điểm yếu không cần nguồn bẩn: mật mã, TLS, secret. Mẫu chi tiết cho từng ngôn
+# ngữ nằm ở tests/test_weakness_crypto.py; đây chỉ là một cặp cho mỗi rule.
+TRIGGERS.update(
+    {
+        "FSB-CRYPTO-001": (
+            PYTHON,
+            "import hashlib\ndef sig(secret, body):\n    return hashlib.md5(secret + body).hexdigest()\n",
+        ),
+        "FSB-CRYPTO-002": (
+            PYTHON,
+            "import hashlib\ndef store(password):\n    return hashlib.sha256(password.encode()).hexdigest()\n",
+        ),
+        "FSB-CRYPTO-003": (PYTHON, "from Crypto.Cipher import DES\nc = DES.new(key, DES.MODE_CBC, iv)\n"),
+        "FSB-CRYPTO-004": (
+            JAVA,
+            "class A { void f() throws Exception { Cipher c = Cipher.getInstance(\"AES\"); } }\n",
+        ),
+        "FSB-CRYPTO-005": (
+            JAVASCRIPT,
+            "const c = crypto.createCipheriv('aes-256-gcm', key, 'fixednonce12');\n",
+        ),
+        "FSB-CRYPTO-006": (JAVASCRIPT, "const t = jwt.sign({ sub: 1 }, 'jwt-signing-secret');\n"),
+        "FSB-CRYPTO-007": (
+            PYTHON,
+            "import random\ntoken = ''.join(random.choice('abc') for _ in range(32))\n",
+        ),
+        "FSB-CRYPTO-008": (PYTHON, "from Crypto.PublicKey import RSA\nk = RSA.generate(1024)\n"),
+        "FSB-TLS-001": (PYTHON, "import requests\nr = requests.get('https://x', verify=False)\n"),
+        "FSB-SECRET-001": (PYTHON, "DB_PASSWORD = 'S3cr3t!Pass2024'\n"),
+        "FSB-DESER-003": (
+            CSHARP,
+            "var s = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };\n",
+        ),
+        "FSB-JWT-001": (PYTHON, "import jwt\nclaims = jwt.decode(token, key, algorithms=['HS256', 'none'])\n"),
+        "FSB-CORS-001": (
+            PYTHON,
+            "from flask_cors import CORS\nCORS(app, origins='*', supports_credentials=True)\n",
+        ),
+        "FSB-COOKIE-001": (
+            PYTHON,
+            "def login(response, token):\n    response.set_cookie('session_token', token)\n",
+        ),
+        "FSB-ACCESS-001": (
+            PYTHON,
+            "from flask import request\n\n\ndef admin_panel():\n"
+            "    if request.args.get('role') == 'admin':\n        return render_admin()\n"
+            "    return abort(403)\n",
+        ),
+        "FSB-MASS-001": (
+            JAVASCRIPT,
+            "app.post('/u', (req, res) => {\n  User.create(req.body);\n  res.end();\n});\n",
+        ),
+        "FSB-PATH-002": (
+            PYTHON,
+            "import tarfile\n\n\ndef unpack(p, dest):\n    with tarfile.open(p) as tar:\n"
+            "        tar.extractall(dest)\n",
+        ),
+        "FSB-PERM-001": (PYTHON, "import os\n\n\ndef publish(p):\n    os.chmod(p, 0o777)\n"),
+        "FSB-TMP-001": (
+            PYTHON,
+            "import tempfile\n\n\ndef stage():\n    return tempfile.mktemp()\n",
+        ),
+        "FSB-DEBUG-001": (
+            PYTHON,
+            "from flask import Flask\n\napp = Flask(__name__)\napp.run(debug=True)\n",
+        ),
+        "FSB-PROTO-001": (
+            JAVASCRIPT,
+            "function merge(target, source) {\n  for (const key in source) {\n"
+            "    target[key] = source[key];\n  }\n  return target;\n}\n"
+            "\napp.post('/s', (req, res) => { merge(config, req.body); });\n",
+        ),
+    }
+)
+
+SAFE_VARIANTS.update(
+    {
+        # ETag: băm nội dung tệp, không phải bí mật.
+        "FSB-CRYPTO-001": (
+            PYTHON,
+            "import hashlib\ndef etag(body):\n    return hashlib.md5(body).hexdigest()\n",
+        ),
+        "FSB-CRYPTO-002": (
+            PYTHON,
+            "import bcrypt\ndef store(password):\n    return bcrypt.hashpw(password, bcrypt.gensalt())\n",
+        ),
+        "FSB-CRYPTO-003": (
+            PYTHON,
+            "from Crypto.Cipher import AES\nc = AES.new(key, AES.MODE_GCM)\n",
+        ),
+        "FSB-CRYPTO-004": (
+            JAVA,
+            "class A { void f() throws Exception { Cipher c = Cipher.getInstance(\"AES/GCM/NoPadding\"); } }\n",
+        ),
+        "FSB-CRYPTO-005": (
+            JAVASCRIPT,
+            "const iv = crypto.randomBytes(12);\nconst c = crypto.createCipheriv('aes-256-gcm', key, iv);\n",
+        ),
+        "FSB-CRYPTO-006": (JAVASCRIPT, "const t = jwt.sign({ sub: 1 }, process.env.JWT_SECRET);\n"),
+        "FSB-CRYPTO-007": (PYTHON, "import secrets\ntoken = secrets.token_urlsafe(32)\n"),
+        "FSB-CRYPTO-008": (PYTHON, "from Crypto.PublicKey import RSA\nk = RSA.generate(3072)\n"),
+        "FSB-TLS-001": (PYTHON, "import requests\nr = requests.get('https://x', verify='/etc/ca.pem')\n"),
+        "FSB-SECRET-001": (PYTHON, "import os\nDB_PASSWORD = os.environ['DB_PASSWORD']\n"),
+        "FSB-DESER-003": (
+            CSHARP,
+            "var s = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };\n",
+        ),
+        "FSB-JWT-001": (PYTHON, "import jwt\nclaims = jwt.decode(token, key, algorithms=['HS256'])\n"),
+        "FSB-CORS-001": (
+            PYTHON,
+            "from flask_cors import CORS\nCORS(app, origins=['https://app.example'], supports_credentials=True)\n",
+        ),
+        "FSB-COOKIE-001": (
+            PYTHON,
+            "def login(response, token):\n    response.set_cookie('session_token', token, httponly=True)\n",
+        ),
+        # Cùng khoá 'role', nhưng chỉ dùng để LỌC danh sách chứ không quyết định quyền.
+        "FSB-ACCESS-001": (
+            PYTHON,
+            "from flask import request\n\n\ndef listing():\n"
+            "    return render(users=find_users(role=request.args.get('role')))\n",
+        ),
+        "FSB-MASS-001": (
+            JAVASCRIPT,
+            "app.post('/u', (req, res) => {\n  User.create({ name: req.body.name });\n"
+            "  res.end();\n});\n",
+        ),
+        "FSB-PATH-002": (
+            PYTHON,
+            "import tarfile\n\n\ndef unpack(p, dest):\n    with tarfile.open(p) as tar:\n"
+            "        tar.extractall(dest, filter='data')\n",
+        ),
+        "FSB-PERM-001": (PYTHON, "import os\n\n\ndef publish(p):\n    os.chmod(p, 0o644)\n"),
+        "FSB-TMP-001": (
+            PYTHON,
+            "import tempfile\n\n\ndef stage():\n    fd, name = tempfile.mkstemp()\n    return name\n",
+        ),
+        # Lối chạy trên máy dev, không phải cấu hình đi kèm ứng dụng.
+        "FSB-DEBUG-001": (
+            PYTHON,
+            "from flask import Flask\n\napp = Flask(__name__)\nif __name__ == '__main__':\n"
+            "    app.run(debug=True)\n",
+        ),
+        "FSB-PROTO-001": (
+            JAVASCRIPT,
+            "function merge(target, source) {\n  for (const key in source) {\n"
+            "    if (key === '__proto__' || key === 'constructor') continue;\n"
+            "    target[key] = source[key];\n  }\n  return target;\n}\n"
+            "\napp.post('/s', (req, res) => { merge(config, req.body); });\n",
+        ),
+    }
+)
 # Mau cho cac rule phu thuoc duong dan: (ngon ngu, duong dan, ma nguon).
 #
 # Mau an toan tuong ung KHONG nam o day ma o tests/test_ir_compromise.py: ho

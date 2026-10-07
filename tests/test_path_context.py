@@ -37,6 +37,10 @@ VULN = (
         ("conftest.py", PathContext.TEST),
         ("src/UserServiceTest.java", PathContext.TEST),
         ("src/PaymentIT.java", PathContext.TEST),
+        ("src/it/java/app/RegistrationUITest.java", PathContext.TEST),
+        ("src/APITests.java", PathContext.TEST),
+        ("Src/Newtonsoft.Json.Tests/Issues/Issue0198.cs", PathContext.TEST),
+        ("src/Shop.Api.UnitTests/OrderTests.cs", PathContext.TEST),
         ("spec.rb", PathContext.TEST),
         ("pkg/fixtures/payload.py", PathContext.TEST),
         ("examples/demo.js", PathContext.EXAMPLE),
@@ -60,6 +64,10 @@ def test_classification(relative: str, expected: PathContext):
         "app/protest.py",
         "src/latest.py",
         "documentation_builder.py",
+        "src/SPLIT.java",
+        "src/Tests.Helpers.Core/Clock.cs",
+        "src/Contest.Api/Program.cs",
+        "src/LATEST.java",
     ],
 )
 def test_lookalike_names_stay_production(relative: str):
