@@ -171,6 +171,7 @@ class _Analysis:
         # Gập hằng ( chỉ khi có ngữ cảnh dự án ): giá trị hằng của biến cục bộ
         # theo từng hàm, và kết quả đã tính cho từng khối `{`.
         self.const_values: Dict[str, Dict[str, object]] = {}
+        self._literal_allowlists: Dict[str, bool] = {}
         self._dead_braces: Dict[int, bool] = {}
         self._switches: Dict[int, List[object]] = {}
         # Tập hợp cục bộ mô phỏng được: map theo khóa hằng, list theo chỉ số hằng.
@@ -296,27 +297,65 @@ class _Analysis:
         break ở cấp ngoài cùng của thân ), và câu `if` không nằm trong một khối
         điều kiện khác -- ở đó nhánh không đi qua phép kiểm vẫn mang giá trị cũ.
         """
-        if len(statement) < 4 or statement[1].kind != OP or statement[1].text != "(":
+        if len(statement) < 4:
             return
-        after = _group_end(statement, 1)
-        if after is None:
-            return
-        closing = after - 1
-        guard = _allowlist_test(statement[2:closing], self.spec)
+        if statement[1].kind == OP and statement[1].text == "(":
+            after = _group_end(statement, 1)
+            if after is None:
+                return
+            closing = after - 1
+            condition = statement[2:closing]
+        else:
+            # Go, Rust: `if !columns[column] { return }` -- điều kiện không có
+            # ngoặc đơn, chạy tới dấu `{` mở thân. Bộ tách câu lệnh cắt ở mọi
+            # dấu `{`, nên dấu đó thường đã không còn trong câu lệnh này.
+            brace = _brace_after(statement, 1)
+            closing = brace if brace is not None else len(statement)
+            condition = statement[1:closing]
+        guard = _allowlist_test(condition, self.spec, self._literal_allowlist)
         if guard is None or not guard[1]:
             return
         if self._in_conditional(statement[0]):
             return
         body = [token for token in statement[closing + 1 :] if token.kind != NEWLINE]
-        if body:
+        if body and not (body[0].kind == OP and body[0].text == "{"):
             exits = body[0].kind == IDENT and body[0].text in _EXIT_KEYWORDS
         else:
-            exits = self._block_exits(statement[closing])
+            anchor = statement[closing] if closing < len(statement) else statement[-1]
+            exits = self._block_exits(anchor)
         if not exits:
             return
         name = guard[0]
         self.tainted.pop(name, None)
         self.sanitized.add(name)
+
+    def _literal_allowlist(self, name: str) -> bool:
+        """Tệp này có khai báo `name` bằng một tập hợp toàn giá trị hằng không.
+
+            var columns = map[string]bool{"name": true, "price": true}
+            ALLOWED = ("asc", "desc")
+
+        Tên biến không nói được nó là danh sách cho phép ( `columns` cũng là
+        một danh sách cho phép hợp lệ ), nhưng NỘI DUNG thì nói: nếu mọi phần
+        tử là hằng viết sẵn thì giá trị sống sót qua phép kiểm thành viên chỉ
+        có thể là một trong số đó.
+        """
+        if not name or "." in name:
+            return False
+        cached = self._literal_allowlists.get(name)
+        if cached is not None:
+            return cached
+        found = False
+        index = self.context.index if self.context is not None else self._index
+        if index is not None:
+            stream = index.stream
+            for position in index.occurrences(name):
+                assign = stream.sig(position + 1)
+                if stream.is_op(assign, "=", ":=") and _constant_collection(stream, assign + 1):
+                    found = True
+                    break
+        self._literal_allowlists[name] = found
+        return found
 
     def _block_exits(self, closing_paren: Token) -> bool:
         index = self.context.index if self.context is not None else self._index
@@ -2173,7 +2212,73 @@ _LITERAL_COLLECTIONS = frozenset(
 _ALLOWLIST_WORDS = ("allow", "permit", "valid", "whitelist", "safe", "known", "supported", "accepted")
 
 
-def _allowlist_test(condition: Sequence[Token], spec: LanguageSpec) -> Optional[Tuple[str, bool]]:
+def _brace_after(statement: Sequence[Token], start: int) -> Optional[int]:
+    """Vị trí dấu `{` mở thân, ở cấp ngoài cùng, hoặc None."""
+    depth = 0
+    for index in range(start, len(statement)):
+        token = statement[index]
+        if token.kind != OP or token.in_string:
+            continue
+        if token.text in ("(", "["):
+            depth += 1
+        elif token.text in (")", "]"):
+            depth -= 1
+        elif token.text == "{" and depth == 0:
+            return index if index > start else None
+    return None
+
+
+def _constant_collection(stream, start: int) -> bool:
+    """`map[string]bool{...}`, `[]string{...}`, `("a", "b")`, `{1, 2}`: toàn hằng.
+
+    Chỉ nhìn tới dấu mở nhóm đầu tiên rồi kiểm tra mọi token bên trong, nên
+    `map[string]bool{"a": true}` và `new HashSet<>(List.of("a"))` đều đạt, còn
+    `map[string]bool{"a": compute()}` thì không.
+    """
+    cursor = stream.sig(start)
+    opener = -1
+    for _ in range(12):
+        if cursor < 0 or cursor >= stream.size:
+            return False
+        if stream.is_op(cursor, "["):
+            # Cú pháp kiểu, không phải nội dung: `map[string]bool{...}`,
+            # `[]string{...}`. Nhảy qua rồi tìm tiếp dấu mở thật.
+            closing = stream.closing(cursor)
+            if closing <= cursor:
+                return False
+            cursor = stream.sig(closing + 1)
+            continue
+        if stream.is_op(cursor, "{", "("):
+            closing = stream.closing(cursor)
+            if closing > cursor:
+                opener = cursor
+                break
+            return False
+        if stream.tokens[cursor].kind not in (IDENT, OP) or stream.is_op(cursor, ";", "="):
+            return False
+        cursor = stream.sig(cursor + 1)
+    if opener < 0:
+        return False
+    closing = stream.closing(opener)
+    if closing <= opener + 1:
+        return False
+    for index in range(opener + 1, closing):
+        token = stream.tokens[index]
+        if token.kind in (STRING, NUMBER, NEWLINE):
+            continue
+        if token.kind == OP and token.text in ("{", "}", "[", "]", "(", ")", ",", ":", "-"):
+            continue
+        if token.kind == IDENT and token.text in ("true", "false", "True", "False"):
+            continue
+        return False
+    return True
+
+
+def _allowlist_test(
+    condition: Sequence[Token],
+    spec: LanguageSpec,
+    is_literal: Optional[Callable[[str], bool]] = None,
+) -> Optional[Tuple[str, bool]]:
     """(biến, có phủ định không) nếu điều kiện là phép kiểm danh sách cho phép.
 
         !ALLOWED.contains(x)        -> ("x", True)
@@ -2202,6 +2307,14 @@ def _allowlist_test(condition: Sequence[Token], spec: LanguageSpec) -> Optional[
         method = "indexOf"
     else:
         method = ""
+    if len(tokens) >= 4 and tokens[-1].kind == OP and tokens[-1].text == "]" and not method:
+        # `!allowed[value]`: phép kiểm thành viên trên map của Go.
+        opener = _matching_open(tokens, len(tokens) - 1)
+        if opener is not None and opener >= 1 and _allowlist_receiver(tokens[:opener], spec, is_literal):
+            name = _sole_chain(tokens[opener + 1 : -1], spec)
+            if name:
+                return (name, negated)
+        return None
     if len(tokens) < 4 or tokens[-1].text != ")":
         return None
     opener = _matching_open(tokens, len(tokens) - 1)
@@ -2218,19 +2331,23 @@ def _allowlist_test(condition: Sequence[Token], spec: LanguageSpec) -> Optional[
         chain, _ = _read_chain(tokens, 0, spec)
         if chain not in ("slices.Contains", "lo.Contains", "_.includes", "contains") or len(arguments) != 2:
             return None
-        if not _allowlist_receiver(arguments[0], spec):
+        if not _allowlist_receiver(arguments[0], spec, is_literal):
             return None
         name = _sole_chain(arguments[1], spec)
         return (name, negated) if name else None
     if len(arguments) != 1 or tokens[opener - 2].text not in spec.chain_separators:
         return None
-    if not _allowlist_receiver(tokens[: opener - 2], spec):
+    if not _allowlist_receiver(tokens[: opener - 2], spec, is_literal):
         return None
     name = _sole_chain(arguments[0], spec)
     return (name, negated) if name else None
 
 
-def _allowlist_receiver(tokens: Sequence[Token], spec: LanguageSpec) -> bool:
+def _allowlist_receiver(
+    tokens: Sequence[Token],
+    spec: LanguageSpec,
+    is_literal: Optional[Callable[[str], bool]] = None,
+) -> bool:
     tokens = [token for token in tokens if token.kind != NEWLINE]
     if not tokens:
         return False
@@ -2247,7 +2364,10 @@ def _allowlist_receiver(tokens: Sequence[Token], spec: LanguageSpec) -> bool:
         if last.isupper() and any(c.isalpha() for c in last):
             return True
         lowered = last.lower()
-        return any(word in lowered for word in _ALLOWLIST_WORDS)
+        if any(word in lowered for word in _ALLOWLIST_WORDS):
+            return True
+        # Tên không nói gì thì đọc nội dung tập hợp được khai báo trong tệp.
+        return bool(is_literal and is_literal(chain))
     if chain in _LITERAL_COLLECTIONS or chain == "Set":
         rest = tokens[after:]
         return all(t.kind in (STRING, NUMBER) or (t.kind == OP and t.text in "(),[]") for t in rest)

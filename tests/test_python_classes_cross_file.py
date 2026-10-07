@@ -241,9 +241,9 @@ def test_unrelated_files_are_collected_once(tmp_path: Path, monkeypatch):
     calls = {}
     original = engine._collect_one
 
-    def counting(discovered, config, project):
+    def counting(discovered, config, project, xproject=None):
         calls[discovered.relative] = calls.get(discovered.relative, 0) + 1
-        return original(discovered, config, project)
+        return original(discovered, config, project, xproject)
 
     monkeypatch.setattr(engine, "_collect_one", counting)
     result = scan(str(tmp_path), Config(jobs=1))

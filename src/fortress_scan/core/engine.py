@@ -12,6 +12,7 @@ from ..analysis.python.project import MAX_INDEX_FUNCTIONS, ProjectIndex
 from ..analysis.unicode_scan import UnicodeAnalyzer
 from ..analysis.workflow import WorkflowAnalyzer
 from ..analysis.xfile import builder as xfile_builder
+from ..analysis.xfile.artifacts import TEMPLATE_SUFFIXES
 from ..analysis.xfile.project import SUPPORTED as XFILE_LANGUAGES
 from ..analysis.xfile.project import XProject
 from ..languages import MANIFEST, PYTHON, WORKFLOW
@@ -251,6 +252,7 @@ def _run(
     """
     notices: List[ScanNotice] = []
     python_files = [item for item in discovered if item.language == PYTHON]
+    xproject = _build_xproject(discovered, artifact_files, config, notices, bool(python_files))
     project: Optional[ProjectIndex] = None
     if python_files and config.cross_file_analysis:
         if len(python_files) > _MAX_CROSS_FILE_FILES:
@@ -269,7 +271,7 @@ def _run(
                 )
             )
         else:
-            project = _build_project(python_files, config)
+            project = _build_project(python_files, config, xproject)
             if not project.converged:
                 notices.append(
                     ScanNotice(
@@ -293,11 +295,14 @@ def _run(
                         details=("giới hạn bảo vệ bộ nhớ của chính lượt quét",),
                     )
                 )
-    xproject = _build_xproject(discovered, artifact_files, config, notices)
     outcomes = _map_files(
         discovered, config, lambda item: _analyze_file(item, config, project, xproject)
     )
     return outcomes, notices
+
+
+def _is_template(relative: str) -> bool:
+    return relative.lower().endswith(TEMPLATE_SUFFIXES)
 
 
 def _build_xproject(
@@ -305,12 +310,18 @@ def _build_xproject(
     artifact_files: Sequence[DiscoveredFile],
     config: Config,
     notices: List[ScanNotice],
+    python_present: bool = False,
 ) -> Optional[XProject]:
     if not config.cross_file_analysis:
         return None
     files = [item for item in discovered if item.language in XFILE_LANGUAGES]
     if not files:
-        return None
+        # Dự án chỉ có Python vẫn cần chỉ mục này khi có template trên đĩa:
+        # `render_template("x.html", note=...)` và `{{ note|safe }}` nằm ở hai
+        # tệp khác nhau. Không có template thì không dựng, để lượt quét Python
+        # thuần không phải đọc thêm gì.
+        if not (python_present and any(_is_template(item.relative) for item in artifact_files)):
+            return None
     if len(files) > _MAX_XFILE_FILES:
         notices.append(
             ScanNotice(
@@ -369,7 +380,11 @@ def _build_xproject(
     return project
 
 
-def _build_project(files: Sequence[DiscoveredFile], config: Config) -> ProjectIndex:
+def _build_project(
+    files: Sequence[DiscoveredFile],
+    config: Config,
+    xproject: Optional[XProject] = None,
+) -> ProjectIndex:
     """Lặp pha thu thập tới điểm dừng, mỗi vòng chỉ tính lại tệp bị ảnh hưởng.
 
     Vòng đầu chạy với chỉ mục rỗng. Sau mỗi vòng, chỉ mục được dựng lại từ
@@ -385,7 +400,9 @@ def _build_project(files: Sequence[DiscoveredFile], config: Config) -> ProjectIn
     while pending and rounds < _MAX_PROJECT_ROUNDS:
         rounds += 1
         current = index
-        collected = _map_files(pending, config, lambda item: _collect_one(item, config, current))
+        collected = _map_files(
+            pending, config, lambda item: _collect_one(item, config, current, xproject)
+        )
         for item, result in zip(pending, collected):
             if result is None:
                 results.pop(item.relative, None)
@@ -411,13 +428,16 @@ def _collect_one(
     discovered: DiscoveredFile,
     config: Config,
     project: Optional[ProjectIndex],
+    xproject: Optional[XProject] = None,
 ) -> Optional[CollectedModule]:
     try:
         source, _ = read_source(discovered.path, discovered.language, discovered.identity)
     except (FileChangedDuringScan, OSError, MemoryError):
         return None
     budget = Budget(config.node_budget, config.file_timeout_seconds)
-    return _PYTHON_ANALYZER.collect_module(source, discovered.relative, budget, project)
+    return _PYTHON_ANALYZER.collect_module(
+        source, discovered.relative, budget, project, xproject
+    )
 
 
 def _map_files(
@@ -531,7 +551,7 @@ def _analyze_unit(
 
     try:
         if unit.language == PYTHON:
-            findings.extend(analyzer.analyze(unit, budget, project))
+            findings.extend(analyzer.analyze(unit, budget, project, xproject))
         elif xproject is not None and unit.language in XFILE_LANGUAGES:
             findings.extend(_GENERIC_ANALYZER.analyze(unit, budget, xproject))
         else:

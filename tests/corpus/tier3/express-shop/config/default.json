@@ -1,0 +1,5 @@
+{
+  "uploadRoot": "/srv/shop/uploads",
+  "reportCommand": "shop-report --format pdf",
+  "listQuery": "SELECT id, name, price FROM products WHERE "
+}

@@ -217,6 +217,7 @@ class TokenIndex:
             self.positions.setdefault((token.line, token.column), index)
         self._stream: Optional[Stream] = None
         self._conditional: Optional[dict] = None
+        self._occurrences: Optional[dict] = None
 
     @property
     def stream(self) -> Stream:
@@ -226,6 +227,16 @@ class TokenIndex:
 
     def index_of(self, token: Token) -> Optional[int]:
         return self.positions.get((token.line, token.column))
+
+    def occurrences(self, name: str) -> Sequence[int]:
+        """Mọi vị trí mà định danh `name` xuất hiện ngoài chuỗi, theo thứ tự."""
+        if self._occurrences is None:
+            table: dict = {}
+            for index, token in enumerate(self.tokens):
+                if token.kind == IDENT and not token.in_string:
+                    table.setdefault(token.text, []).append(index)
+            self._occurrences = table
+        return self._occurrences.get(name, ())
 
     def _brace_is_conditional(self, brace: int) -> bool:
         stream = self.stream

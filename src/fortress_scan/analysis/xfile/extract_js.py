@@ -115,6 +115,7 @@ class _JsExtractor:
         self._find_functions()
         self._imports_and_exports()
         self._constants_and_objects()
+        self._field_constants()
         self._types()
         self._routes_and_queues()
         self.facts.functions = self.functions + self.anonymous
@@ -749,7 +750,7 @@ class _JsExtractor:
                 if is_data and not member:
                     self.facts.data_imports[local] = spec
                     return
-                self.facts.imports[local] = ImportBinding(spec, member or "*")
+                self.facts.imports[local] = ImportBinding(spec, member or "*", commonjs=not member)
 
     def _export(self, index: int) -> None:
         s = self.s
@@ -952,6 +953,50 @@ class _JsExtractor:
             if literal is not None:
                 self.facts.constants[s.text(name_index)] = literal
 
+    def _fallback_construction(self, after: int) -> str:
+        """Kiểu ở vế sau của `x || new Y()` / `x ?? new Y()`, hoặc ""."""
+        s = self.s
+        operator = s.sig(after)
+        if not s.is_op(operator, "||", "??"):
+            return ""
+        keyword = s.sig(operator + 1)
+        if not s.is_ident(keyword, "new"):
+            return ""
+        chain, _ = s.chain_at(s.sig(keyword + 1))
+        return chain or ""
+
+    def _field_constants(self) -> None:
+        """`this.listQuery = "SELECT ..."` hay `= config.listQuery` trong lớp.
+
+        Câu SQL dựng sẵn thường nằm ở một trường của repository, không nằm
+        ngay chỗ gọi, nên không có bảng này thì lời gọi `this.query(...)`
+        không chứng minh được chuỗi nó nhận là SQL.
+        """
+        s = self.s
+        for index in range(s.size):
+            if not s.is_op(index, "="):
+                continue
+            if s.is_op(s.sig(index + 1), "=") or s.is_op(s.back(index - 1), "=", "!", "<", ">"):
+                continue
+            target = self._target_before(index)
+            if not target or not target.startswith("this."):
+                continue
+            name = target[len("this.") :]
+            info = self.facts.classes.get(self._this_owner(index))
+            if info is None or "." in name:
+                continue
+            value = s.sig(index + 1)
+            end = value
+            while end < s.size and not s.is_op(end, ";") and self.tokens[end].kind != NEWLINE:
+                end += 1
+            literal = s.string_value(value, end)
+            if literal is not None:
+                info.constants.setdefault(name, literal)
+            elif s.is_ident(value):
+                chain, after = s.chain_at(value)
+                if chain and "." in chain and s.sig(after) >= end:
+                    info.field_sources.setdefault(name, chain)
+
     # ----------------------------------------------------------------- types
     def _types(self) -> None:
         s = self.s
@@ -988,6 +1033,11 @@ class _JsExtractor:
                         type_name = owner_function.param_types[position]
                         if not type_name and self._constructor_like(owner_function, index):
                             type_name = "(param)%d" % position
+                        fallback = self._fallback_construction(after)
+                        if fallback and type_name.startswith("(param)"):
+                            # `this.repo = repo || new ProductRepository()`: khi
+                            # không ai truyền đối số thì kiểu là vế sau.
+                            type_name = "%s;%s" % (type_name, fallback)
             if not type_name and not deferred:
                 continue
             if target.startswith("this."):
@@ -1215,7 +1265,11 @@ class _JsExtractor:
                 for start, end in arguments[1:] if s.is_string(first) else arguments:
                     self._route_argument(start, end, by_body)
             self._escape_setting(method, after, close)
-            if method == "add" and head in self.facts.queues:
+            if method == "add" and head and (
+                head in self.facts.queues or head.split(".")[0] in self.facts.imports
+            ):
+                # Hàng đợi nhập từ tệp khác thì tới `finalize` mới biết tên nó;
+                # ghi lại nơi đẩy job rồi lượt dò bỏ qua nếu không phải hàng đợi.
                 self.facts.queue_producers.append((head, index))
             if (head == "" and method in _QUEUE_CLASSES) or (
                 s.is_ident(s.back(index - 1), "new") and method in _QUEUE_CLASSES | {"Worker"}
@@ -1235,8 +1289,13 @@ class _JsExtractor:
                     target = self._target_before(equals)
                     if target:
                         self.facts.queues[target] = queue_name
-            if method == "process" and head in self.facts.queues and arguments:
-                self._queue_consumer(self.facts.queues[head], arguments[-1], by_body)
+            if method == "process" and head and arguments:
+                known = self.facts.queues.get(head)
+                if known is not None:
+                    self._queue_consumer(known, arguments[-1], by_body)
+                else:
+                    # Hàng đợi tạo ở tệp khác: `finalize` biết nó tên gì.
+                    self._queue_consumer(head, arguments[-1], by_body, pending=True)
 
     def _escape_setting(self, method: str, start: int, end: int) -> None:
         """`autoescape: false` / `noEscape: true` truyền cho engine template."""
@@ -1267,12 +1326,20 @@ class _JsExtractor:
         if chain and s.sig(after) >= end:
             self.facts.route_handlers.append((chain, first))
 
-    def _queue_consumer(self, queue_name: str, argument: Tuple[int, int], by_body: Dict[int, FunctionDef]) -> None:
+    def _queue_consumer(
+        self,
+        queue_name: str,
+        argument: Tuple[int, int],
+        by_body: Dict[int, FunctionDef],
+        pending: bool = False,
+    ) -> None:
         s = self.s
         first = s.sig(argument[0])
         function = self._function_in(first, argument[1], by_body)
         if function is not None and function.params and function.params[0]:
-            self.facts.queue_consumers.append((queue_name, function.body_start, function.params[0]))
+            entry = (queue_name, function.body_start, function.params[0])
+            bucket = self.facts.pending_consumers if pending else self.facts.queue_consumers
+            bucket.append(entry)
 
     def _function_in(self, start: int, end: int, by_body: Dict[int, FunctionDef]) -> Optional[FunctionDef]:
         for function in by_body.values():

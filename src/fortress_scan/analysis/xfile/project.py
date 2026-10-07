@@ -323,8 +323,45 @@ class XProject:
                 for base in info.bases:
                     simple = base.rsplit(".", 1)[-1]
                     self._implementers.setdefault((_family(facts.language), simple), []).append(info)
+        self._wire_queues()
         self._wire_routes()
         self._mapper_summaries()
+
+    def _wire_queues(self) -> None:
+        """Hàng đợi tạo ở một tệp và dùng ở tệp khác.
+
+            queue/index.js   const thumbnails = new Queue('thumbnails');
+            controllers.js   thumbnails.add({ source: req.body.source });
+            worker.js        thumbnails.process(async (job) => ...);
+
+        Tên hàng đợi chỉ xuất hiện ở tệp tạo nó, nên không nối qua import thì
+        cả nơi đẩy job lẫn nơi xử lý job đều không biết mình đang nói về hàng
+        đợi nào, và payload bẩn không đi tới được worker.
+        """
+        for facts in self.facts.values():
+            if facts.language not in JS_FAMILY:
+                continue
+            for local, binding in facts.imports.items():
+                target = self._js_resolve_module(facts.path, binding.spec)
+                if target is None:
+                    continue
+                target_facts = self.facts.get(target)
+                if target_facts is None or not target_facts.queues:
+                    continue
+                if binding.name == "*":
+                    for name, queue_name in target_facts.queues.items():
+                        facts.queues.setdefault("%s.%s" % (local, name), queue_name)
+                    continue
+                queue_name = target_facts.queues.get(binding.name)
+                if queue_name is not None:
+                    facts.queues.setdefault(local, queue_name)
+            for head, body_start, job in facts.pending_consumers:
+                queue_name = facts.queues.get(head)
+                if queue_name is not None:
+                    entry = (queue_name, body_start, job)
+                    if entry not in facts.queue_consumers:
+                        facts.queue_consumers.append(entry)
+            facts.pending_consumers.clear()
 
     def _wire_routes(self) -> None:
         for facts in self.facts.values():
@@ -776,7 +813,11 @@ class XProject:
             found = self._js_return_type(facts, field_type[2:], None)
             return [found] if found else []
         if field_type.startswith("(param)"):
-            return self._constructor_argument_types(path, info, int(field_type[len("(param)") :]), depth + 1)
+            marker, _, fallback = field_type.partition(";")
+            found = self._constructor_argument_types(path, info, int(marker[len("(param)") :]), depth + 1)
+            # `this.repo = repo || new Repo()`: vế sau là kiểu khi nơi `new`
+            # lớp này không truyền gì.
+            return found + [fallback] if fallback else found
         return [field_type]
 
     def _constructor_argument_types(self, path: str, info: ClassDef, position: int, depth: int) -> List[str]:
@@ -934,7 +975,12 @@ class XProject:
             if binding.name == "*":
                 if not rest:
                     return self._js_resolved_export(target, "default", [], depth)
-                return self._js_resolved_export(target, rest[0], rest[1:], depth)
+                found = self._js_resolved_export(target, rest[0], rest[1:], depth)
+                if found or not binding.commonjs:
+                    return found
+                # `const repo = require('./repo')` + `module.exports = new Repo()`:
+                # `repo.byName()` là phương thức của đối tượng được xuất.
+                return self._js_resolved_export(target, "default", rest, depth)
             return self._js_resolved_export(target, binding.name, rest, depth)
         return []
 
@@ -1309,7 +1355,47 @@ class XProject:
             return self.java_constant(facts, chain, function)
         if facts.language == GO:
             return self.go_constant(facts, chain)
+        if chain.startswith("this.") and function is not None:
+            return self._js_field_constant(facts, function, chain[len("this.") :], 0)
         return self._js_constant(facts, chain, 0)
+
+    def _js_field_constant(
+        self, facts: FileFacts, function: FunctionDef, name: str, depth: int
+    ) -> Optional[Tuple[str, str]]:
+        """Hằng ở trường `this.<name>` của lớp chứa `function`.
+
+        Tìm cả lên lớp cha và XUỐNG lớp con: một phương thức của lớp cơ sở chỉ
+        chạy trên thể hiện của lớp con, nên `this.listQuery` trong
+        `BaseRepository.where` lấy giá trị mà lớp con gán cho nó. Chỉ dùng cho
+        phép chứng minh "chuỗi này là SQL", không dùng để khử vết nhiễm.
+        """
+        if depth > _MAX_DEPTH or "." in name or not function.owner:
+            return None
+        info = facts.classes.get(function.owner)
+        if info is None:
+            return None
+        seen: Set[int] = set()
+        pending: List[Tuple[str, ClassDef]] = [(facts.path, info)]
+        while pending and len(seen) <= _MAX_DEPTH:
+            owner_path, current = pending.pop(0)
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            owner_facts = self.facts.get(owner_path)
+            if owner_facts is None:
+                continue
+            if name in current.constants:
+                return current.constants[name], owner_path
+            source = current.field_sources.get(name)
+            if source:
+                found = self._js_constant(owner_facts, source, depth + 1)
+                if found is not None:
+                    return found
+            for base in current.bases:
+                pending.extend(self._js_class(owner_path, base, depth + 1))
+            for child in self._implementers.get(("js", current.name), []):
+                pending.append((self._class_file.get(id(child), child.path), child))
+        return None
 
     def _js_constant(self, facts: FileFacts, chain: str, depth: int) -> Optional[Tuple[str, str]]:
         if depth > _MAX_DEPTH:

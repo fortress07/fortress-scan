@@ -82,6 +82,9 @@ class ClassDef:
     # Trường Java gắn @Value("${khoa}"): tên trường -> khóa cấu hình.
     config_fields: Dict[str, str] = field(default_factory=dict)
     constants: Dict[str, str] = field(default_factory=dict)
+    # Trường được gán một chuỗi truy cập trỏ tới hằng ở nơi khác
+    # ( `this.listQuery = config.listQuery` ): tên trường -> chuỗi đó.
+    field_sources: Dict[str, str] = field(default_factory=dict)
     # Tên đầy đủ ( Java: gói + tên lớp; Go: thư mục + tên kiểu ).
     qualified: str = ""
 
@@ -96,6 +99,11 @@ class ImportBinding:
 
     spec: str
     name: str
+    # CommonJS: `const m = require('./m')` nhận chính đối tượng module, và
+    # module đó thường chỉ gán `module.exports = <một đối tượng>`, nên
+    # `m.method()` là phương thức của thứ được xuất, không phải một tên xuất.
+    # ESM `import * as m` thì khác: ở đó chỉ có tên xuất.
+    commonjs: bool = False
 
 
 @dataclass
@@ -126,6 +134,9 @@ class FileFacts:
     # đầu thân hàm, tên tham số job).
     queues: Dict[str, str] = field(default_factory=dict)
     queue_consumers: List[Tuple[str, int, str]] = field(default_factory=list)
+    # Nơi xử lý job trên một hàng đợi NHẬP TỪ tệp khác: tên cục bộ chưa biết
+    # trỏ về hàng đợi nào lúc đọc tệp này, nên để `finalize` phân giải.
+    pending_consumers: List[Tuple[str, int, str]] = field(default_factory=list)
     # Tệp JSON/thuộc tính được nạp như module: tên cục bộ -> đường dẫn tệp.
     data_imports: Dict[str, str] = field(default_factory=dict)
     # Kiểu biến cục bộ trong từng hàm ( theo FunctionDef.key ).

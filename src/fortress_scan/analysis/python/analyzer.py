@@ -34,6 +34,7 @@ from .taint import (
 )
 
 if TYPE_CHECKING:  # tránh vòng import: project.py nhập FunctionInfo từ đây
+    from ..xfile.project import XProject
     from .project import ProjectIndex
 
 SUMMARY_MODE = "summary"
@@ -175,12 +176,13 @@ class PythonAnalyzer(Analyzer):
         unit: AnalysisUnit,
         budget: Budget,
         project: Optional["ProjectIndex"] = None,
+        xproject: Optional["XProject"] = None,
     ) -> List[Finding]:
         try:
             tree = ast.parse(unit.source, filename=_parse_filename(unit.relative_path))
         except (SyntaxError, ValueError, MemoryError, RecursionError) as exc:
             raise UnparsableSource(str(exc)) from exc
-        module = ModuleAnalysis(unit, budget, project)
+        module = ModuleAnalysis(unit, budget, project, xproject)
         return module.run(tree)
 
     def collect_module(
@@ -189,6 +191,7 @@ class PythonAnalyzer(Analyzer):
         relative_path: str,
         budget: Budget,
         project: Optional["ProjectIndex"] = None,
+        xproject: Optional["XProject"] = None,
     ) -> Optional[CollectedModule]:
         """Chỉ chạy pha thu thập: hàm, lớp và summary, không báo cáo gì.
 
@@ -205,7 +208,7 @@ class PythonAnalyzer(Analyzer):
             source=source,
             config=Config(),
         )
-        module = ModuleAnalysis(unit, budget, project)
+        module = ModuleAnalysis(unit, budget, project, xproject)
         module.collect(tree)
         # Bỏ nút AST: kết quả của mọi tệp được giữ qua nhiều vòng, cây cú pháp
         # của cả dự án thì không cần nằm trong bộ nhớ cùng lúc.
@@ -233,11 +236,15 @@ class ModuleAnalysis:
         unit: AnalysisUnit,
         budget: Budget,
         project: Optional["ProjectIndex"] = None,
+        xproject: Optional["XProject"] = None,
     ) -> None:
         self.unit = unit
         self.budget = budget
         self.builder = FindingBuilder(unit)
         self.project = project
+        # Chỉ mục tệp không phải mã ( template, cấu hình ). Pha thu thập chạy
+        # không có nó; chỉ pha báo cáo cần đọc chỗ in thô trong template.
+        self.xproject = xproject
         names = module_names(unit.relative_path)
         # Tên module dài nhất, làm tiền tố cho tên đầy đủ của lớp trong tệp.
         self.module_name = names[0] if names else ""
@@ -1413,6 +1420,10 @@ class Evaluator:
     ) -> None:
         if target.qualname in self.module.functions:
             return
+        renderer = specs.TEMPLATE_RENDERERS.get(target.qualname)
+        if renderer is not None:
+            self._check_template_render(node, renderer, keyword_values, env)
+            return
         spec = specs.SINKS.get(target.qualname)
         if spec is None and target.attribute is not None:
             candidate = specs.METHOD_SINKS.get(target.attribute)
@@ -1449,6 +1460,116 @@ class Evaluator:
         for keyword in spec.keywords:
             if keyword in keyword_values:
                 self._evaluate_sink_argument(node, spec, keyword_values[keyword], node)
+
+    def _check_template_render(
+        self,
+        node: ast.Call,
+        renderer: Tuple[int, Optional[int]],
+        keyword_values: Dict[str, Value],
+        env: Environment,
+    ) -> None:
+        """`render_template("v.html", note=x)` với `{{ note|safe }}` trong v.html.
+
+        Hai đầu của đường đi nằm ở hai tệp khác loại nhau: lời gọi ở mã Python,
+        chỗ in thô ở template. Tên template phải là hằng, vì chỉ khi đó mới biết
+        được tệp nào thực sự được render.
+        """
+        xproject = self.module.xproject
+        if xproject is None:
+            return
+        name_index, context_index = renderer
+        name = _constant_string(node.args[name_index]) if name_index < len(node.args) else None
+        if not name:
+            return
+        templates = xproject.templates_for(name)
+        if not templates:
+            return
+        context = dict(keyword_values)
+        if context_index is not None:
+            context.update(self._dict_context(node, context_index, env))
+        if not context:
+            return
+        for template in templates:
+            for output in xproject.template_outputs(template):
+                value = context.get(output.root)
+                if value is None:
+                    continue
+                self._report_raw_output(node, template.path, output, value)
+
+    def _dict_context(
+        self, node: ast.Call, index: int, env: Environment
+    ) -> Dict[str, Value]:
+        """Bối cảnh của Django là một dict: `render(request, "v.html", {"k": x})`."""
+        argument = node.args[index] if index < len(node.args) else None
+        if argument is None:
+            for keyword in node.keywords:
+                if keyword.arg == "context":
+                    argument = keyword.value
+                    break
+        if not isinstance(argument, ast.Dict):
+            return {}
+        values: Dict[str, Value] = {}
+        for key, item in zip(argument.keys, argument.values):
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                values[key.value] = self._eval(item, env)
+        return values
+
+    def _report_raw_output(
+        self, node: ast.Call, template_path: str, output, value: Value
+    ) -> None:
+        taint = value.taint
+        if taint is None or not taint.active_for(Category.MARKUP):
+            return
+        if value.instance:
+            # Giá trị là thể hiện của một lớp đã biết, nên `{{ x|safe }}` in ra
+            # cái mà lớp ấy tự dựng, không in lại văn bản của request: form của
+            # Django vào template như `{{ form.username|safe }}` là widget đã
+            # được escape sẵn, `|safe` ở đó chỉ để HTML của widget không bị
+            # escape hai lần. Dữ liệu bẩn đi vào constructor không đủ để nói
+            # chỗ in đó là XSS.
+            return
+        # Tệp của sink đi kèm SinkHit qua `origin_path`, nên mô tả không nhắc
+        # lại đường dẫn: thông điệp xuyên file đã chèn nó vào đúng chỗ.
+        description = "chỗ in thô ( %s ) của template" % output.syntax
+        if self.mode == SUMMARY_MODE:
+            for parameter in taint.parameters:
+                self.recorded_sinks.add(
+                    SinkHit(
+                        parameter=parameter,
+                        rule_id="FSB-XSS-001",
+                        category=Category.MARKUP,
+                        line=output.line,
+                        column=output.column,
+                        symbol=output.root,
+                        description=description,
+                        origin_path=template_path,
+                    )
+                )
+            return
+        if taint.parameters:
+            return
+        call_step = self.builder.step(
+            StepKind.CALL, node.lineno, node.col_offset, "được đưa vào template"
+        )
+        sink_step = self.builder.step(
+            StepKind.SINK,
+            output.line,
+            output.column,
+            "in ra không escape bằng %s" % output.syntax,
+            code=output.syntax,
+            path=template_path,
+        )
+        self.builder.add(
+            rule_id="FSB-XSS-001",
+            line=node.lineno,
+            column=node.col_offset,
+            symbol=output.root,
+            message="%s được template %s in ra không escape ( %s )"
+            % (taint.describe(), template_path, output.syntax),
+            confidence=min(_confidence_for(taint), Confidence.HIGH),
+            trace=tuple(taint.trace) + (call_step, sink_step),
+            tags=("cross-file",),
+        )
 
     def _evaluate_sink_argument(
         self, node: ast.Call, spec: specs.SinkSpec, value: Value, argument_node: ast.AST
@@ -1647,6 +1768,12 @@ class Evaluator:
             ),
             constant=False,
         )
+
+
+def _constant_string(node: Optional[ast.expr]) -> str:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return ""
 
 
 def _confidence_for(taint: Taint) -> Confidence:

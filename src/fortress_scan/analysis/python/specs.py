@@ -1104,3 +1104,13 @@ def _is_jdbc_call(text: str) -> bool:
 
 
 NOSQL_OPERATOR_KEYS: FrozenSet[str] = frozenset({"$where", "$expr", "$function", "$accumulator"})
+
+
+# Hàm render một template nằm trên đĩa: tên template ở đâu, và bối cảnh ở đâu
+# khi nó là một dict thay vì keyword. Chỗ in thô ( `{{ x|safe }}` ) nằm trong
+# chính tệp template, nên phần nối hai đầu cần chỉ mục artifact của dự án.
+TEMPLATE_RENDERERS: Dict[str, Tuple[int, Optional[int]]] = {
+    "flask.render_template": (0, None),
+    "django.shortcuts.render": (1, 2),
+    "django.template.loader.render_to_string": (0, 1),
+}
