@@ -60,6 +60,9 @@ class GenericSink:
     # án, không phải một chuỗi mã dựng lúc chạy: bỏ rule "không phải hằng" khi
     # đối số là một lời tạo đối tượng kiểu này. Vết nhiễm vẫn được báo.
     file_constructors: FrozenSet[str] = frozenset()
+    # `send_download(conn, {:file, path})` của Phoenix: chỉ là sink khi đối số
+    # mở đầu đúng bằng các token này; `{:binary, data}` là nội dung, không phải đường dẫn.
+    argument_prefix: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -169,6 +172,21 @@ class LanguageSpec:
     # `http.get(Uri.parse(u))`: lời gọi chỉ bọc lấy giá trị, đối số đầu tiên của
     # nó mới là chính câu SQL hay URL. `Sql('SELECT 1')` vì thế vẫn là hằng.
     value_wrappers: FrozenSet[str] = frozenset()
+    # Elixir: `{` `}` là tuple và map, không phải khối lệnh.
+    brace_statements: bool = True
+    # `params["q"] |> String.trim() |> System.shell()`: vế trái thành đối số đầu.
+    pipe_operators: FrozenSet[str] = frozenset()
+    # `{:ok, body, conn} = read_body(conn)`, `%{"q" => q} = params`: mọi tên được
+    # gắn trong mẫu nhận vết nhiễm của vế phải.
+    pattern_assignments: bool = False
+    # Tên luôn là cấu trúc của framework, không bao giờ là chuỗi của người dùng.
+    framework_names: FrozenSet[str] = frozenset()
+    # Callback mà framework truyền dữ liệu của client vào: tên -> vị trí tham số.
+    # `def handle_event("save", params, socket)` của Phoenix LiveView.
+    callback_parameters: Dict[str, Tuple[int, ...]] = field(default_factory=dict)
+    # `@csp` của Elixir là thuộc tính module, cố định lúc biên dịch: đọc nó là
+    # đọc một hằng. ( `@x` của Ruby là biến thực thể, nên không bật ở đó. )
+    attribute_constants: bool = False
 
 
 # Ép về số hoặc UUID thì không còn ký tự đặc biệt nào sống sót, ở bất kỳ nhóm
@@ -2324,10 +2342,12 @@ def _register_application_languages() -> None:
     # Đặt ở tệp riêng để bảng này không phình thêm hàng nghìn dòng; tệp đó
     # dùng lại các hằng ở trên nên chỉ nạp được sau khi chúng đã có.
     from .profiles_app import APPLICATION_SPECS
+    from .profiles_elixir import ELIXIR_SPECS
     from .profiles_mobile import MOBILE_SPECS
 
     SPECS.update(APPLICATION_SPECS)
     SPECS.update(MOBILE_SPECS)
+    SPECS.update(ELIXIR_SPECS)
 
 
 _register_application_languages()

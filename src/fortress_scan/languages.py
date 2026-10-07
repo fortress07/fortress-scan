@@ -39,6 +39,9 @@ GROOVY = "groovy"
 SWIFT = "swift"
 DART = "dart"
 
+# Phoenix / Plug trên BEAM.
+ELIXIR = "elixir"
+
 _EXTENSION_MAP: Dict[str, str] = {
     ".py": PYTHON,
     ".pyw": PYTHON,
@@ -75,6 +78,8 @@ _EXTENSION_MAP: Dict[str, str] = {
     ".sc": SCALA,
     ".swift": SWIFT,
     ".dart": DART,
+    ".ex": ELIXIR,
+    ".exs": ELIXIR,
     ".c": C,
     ".h": C,
     ".cc": CPP,
@@ -139,6 +144,7 @@ _SHEBANG_MAP: Tuple[Tuple[str, str], ...] = (
     ("perl", PERL),
     ("lua", LUA),
     ("pwsh", POWERSHELL),
+    ("elixir", ELIXIR),
     ("sh", SHELL),
 )
 
@@ -290,4 +296,5 @@ def display_name(language: str) -> str:
         GROOVY: "Groovy",
         SWIFT: "Swift",
         DART: "Dart",
+        ELIXIR: "Elixir",
     }.get(language, language)

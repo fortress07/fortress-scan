@@ -1,5 +1,5 @@
-<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 726' width='900' height='726' role='img'><defs><marker id='adark' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6' markerHeight='6' orient='auto-start-reverse'><path d='M 0 0 L 10 5 L 0 10 z' fill='#a3aec6' opacity='0.75'/></marker></defs>
-<text x='24' y='30' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14.5' fill='#e9eef8' text-anchor='start' font-weight='700'>Độ phủ trên 20 ngôn ngữ và định dạng</text>
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 756' width='900' height='756' role='img'><defs><marker id='adark' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6' markerHeight='6' orient='auto-start-reverse'><path d='M 0 0 L 10 5 L 0 10 z' fill='#a3aec6' opacity='0.75'/></marker></defs>
+<text x='24' y='30' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14.5' fill='#e9eef8' text-anchor='start' font-weight='700'>Độ phủ trên 21 ngôn ngữ và định dạng</text>
 <text x='24' y='52' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Python có parser AST nên sâu hơn hẳn; phần còn lại phân tích theo token.</text>
 <rect x='24' y='64' width='300' height='19' rx='9.5' fill='#4cd8c2' opacity='0.16'/>
 <rect x='24' y='64' width='300' height='19' rx='9.5' fill='none' stroke='#4cd8c2' stroke-width='1' opacity='0.45'/>
@@ -57,88 +57,95 @@
 <rect x='420' y='283' width='122.2' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='293' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>11 họ rule</text>
 <circle cx='38' cy='319' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='323' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>JavaScript / TypeScript</text>
-<text x='234' y='323' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Express, Node</text>
+<text x='52' y='323' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Elixir</text>
+<text x='234' y='323' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Phoenix, LiveView, Ecto</text>
 <rect x='420' y='313' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='313' width='100' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='323' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>9 họ rule</text>
+<rect x='420' y='313' width='122.2' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='323' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>11 họ rule</text>
 <rect x='24' y='336' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
 <circle cx='38' cy='349' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='353' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Scala</text>
-<text x='234' y='353' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Play, Akka HTTP, Slick</text>
+<text x='52' y='353' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>JavaScript / TypeScript</text>
+<text x='234' y='353' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Express, Node</text>
 <rect x='420' y='343' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='420' y='343' width='100' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='353' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>9 họ rule</text>
 <circle cx='38' cy='379' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='383' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Go</text>
-<text x='234' y='383' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>net/http, gin, echo</text>
+<text x='52' y='383' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Scala</text>
+<text x='234' y='383' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Play, Akka HTTP, Slick</text>
 <rect x='420' y='373' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='373' width='88.9' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='383' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>8 họ rule</text>
+<rect x='420' y='373' width='100' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='383' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>9 họ rule</text>
 <rect x='24' y='396' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
 <circle cx='38' cy='409' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='413' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>PHP</text>
-<text x='234' y='413' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>$_GET / $_POST / $_COOKIE</text>
+<text x='52' y='413' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Go</text>
+<text x='234' y='413' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>net/http, gin, echo</text>
 <rect x='420' y='403' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='420' y='403' width='88.9' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='413' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>8 họ rule</text>
 <circle cx='38' cy='439' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='443' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Lua</text>
-<text x='234' y='443' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>OpenResty ngx.*</text>
+<text x='52' y='443' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>PHP</text>
+<text x='234' y='443' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>$_GET / $_POST / $_COOKIE</text>
 <rect x='420' y='433' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='433' width='77.8' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='443' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>7 họ rule</text>
+<rect x='420' y='433' width='88.9' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='443' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>8 họ rule</text>
 <rect x='24' y='456' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
 <circle cx='38' cy='469' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='473' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Dart</text>
-<text x='234' y='473' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>shelf, Dart Frog, Flutter</text>
+<text x='52' y='473' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Lua</text>
+<text x='234' y='473' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>OpenResty ngx.*</text>
 <rect x='420' y='463' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='420' y='463' width='77.8' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='473' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>7 họ rule</text>
 <circle cx='38' cy='499' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='503' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Rust</text>
-<text x='234' y='503' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>actix, axum</text>
+<text x='52' y='503' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Dart</text>
+<text x='234' y='503' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>shelf, Dart Frog, Flutter</text>
 <rect x='420' y='493' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='493' width='66.7' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='503' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>6 họ rule</text>
+<rect x='420' y='493' width='77.8' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='503' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>7 họ rule</text>
 <rect x='24' y='516' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
 <circle cx='38' cy='529' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='533' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>PowerShell</text>
-<text x='234' y='533' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>script build, script CI</text>
+<text x='52' y='533' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Rust</text>
+<text x='234' y='533' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>actix, axum</text>
 <rect x='420' y='523' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='420' y='523' width='66.7' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='533' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>6 họ rule</text>
 <circle cx='38' cy='559' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='563' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Perl</text>
-<text x='234' y='563' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>CGI $q-&gt;param</text>
+<text x='52' y='563' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>PowerShell</text>
+<text x='234' y='563' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>script build, script CI</text>
 <rect x='420' y='553' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='553' width='55.6' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='563' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>5 họ rule</text>
+<rect x='420' y='553' width='66.7' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='563' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>6 họ rule</text>
 <rect x='24' y='576' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
 <circle cx='38' cy='589' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='593' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Workflow GitHub Actions</text>
-<text x='234' y='593' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>.github/workflows/*.yml</text>
+<text x='52' y='593' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Perl</text>
+<text x='234' y='593' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>CGI $q-&gt;param</text>
 <rect x='420' y='583' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='583' width='44.4' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='593' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>4 họ rule</text>
+<rect x='420' y='583' width='55.6' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='593' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>5 họ rule</text>
 <circle cx='38' cy='619' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='623' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Ruby</text>
-<text x='234' y='623' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Rails params</text>
+<text x='52' y='623' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Workflow GitHub Actions</text>
+<text x='234' y='623' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>.github/workflows/*.yml</text>
 <rect x='420' y='613' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='420' y='613' width='44.4' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='623' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>4 họ rule</text>
 <rect x='24' y='636' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
 <circle cx='38' cy='649' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='653' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Shell</text>
-<text x='234' y='653' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>bash, sh</text>
+<text x='52' y='653' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Ruby</text>
+<text x='234' y='653' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>Rails params</text>
 <rect x='420' y='643' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
-<rect x='420' y='643' width='22.2' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
-<text x='732' y='653' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>2 họ rule</text>
+<rect x='420' y='643' width='44.4' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='653' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>4 họ rule</text>
 <circle cx='38' cy='679' r='4' fill='#93a2ff' opacity='0.90'/>
-<text x='52' y='683' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>package.json</text>
-<text x='234' y='683' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>script vòng đời</text>
+<text x='52' y='683' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>Shell</text>
+<text x='234' y='683' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>bash, sh</text>
 <rect x='420' y='673' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
 <rect x='420' y='673' width='22.2' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
 <text x='732' y='683' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>2 họ rule</text>
-<text x='24' y='712' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Con số của các ngôn ngữ quét theo token đếm theo HỌ rule bắt được, không phải theo số rule đăng ký.</text>
+<rect x='24' y='696' width='852' height='27' rx='7' fill='#2b3546' opacity='0.16'/>
+<circle cx='38' cy='709' r='4' fill='#93a2ff' opacity='0.90'/>
+<text x='52' y='713' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11' fill='#e9eef8' text-anchor='start' font-weight='700'>package.json</text>
+<text x='234' y='713' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#a3aec6' text-anchor='start' font-weight='400'>script vòng đời</text>
+<rect x='420' y='703' width='300' height='12' rx='6.0' fill='#2b3546' opacity='0.20'/>
+<rect x='420' y='703' width='22.2' height='12' rx='6' fill='#93a2ff' opacity='0.85'/>
+<text x='732' y='713' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#93a2ff' text-anchor='start' font-weight='700'>2 họ rule</text>
+<text x='24' y='742' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Con số của các ngôn ngữ quét theo token đếm theo HỌ rule bắt được, không phải theo số rule đăng ký.</text>
 </svg>

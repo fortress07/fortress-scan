@@ -11,7 +11,7 @@ import pytest
 
 from fortress_scan.core.config import Config
 from fortress_scan.core.engine import scan_source
-from fortress_scan.languages import CSHARP, DART, GO, GROOVY, JAVA, KOTLIN, SCALA, SWIFT
+from fortress_scan.languages import CSHARP, DART, ELIXIR, GO, GROOVY, JAVA, KOTLIN, SCALA, SWIFT
 
 _JAVA = (
     "class A {\n"
@@ -77,6 +77,14 @@ _DART = (
     "}\n"
 )
 
+_ELIXIR = (
+    "defmodule A do\n"
+    "  def a(conn, %%{\"v\" => v}) do\n"
+    "    %s\n"
+    "  end\n"
+    "end\n"
+)
+
 _JVM_SINKS = {
     "CMD": "Runtime.getRuntime().exec(v)",
     "SQL": "stmt.executeQuery(\"SELECT * FROM t WHERE a = '\" + v + \"'\")",
@@ -133,6 +141,17 @@ CASES = [
     (DART, "SSRF", _DART % "await http.get(Uri.parse(v))"),
     (DART, "XSS", _DART % "controller.loadHtmlString('<p>$v</p>')"),
     (DART, "IMPORT", _DART % "await Isolate.spawnUri(Uri.parse(v), [], null)"),
+    (ELIXIR, "CMD", _ELIXIR % 'System.shell("ping " <> v)'),
+    (ELIXIR, "SQL", _ELIXIR % "Repo.query!(\"SELECT * FROM t WHERE a = '#{v}'\")"),
+    (ELIXIR, "EXEC", _ELIXIR % "Code.eval_string(v)"),
+    (ELIXIR, "IMPORT", _ELIXIR % "Code.require_file(v)"),
+    (ELIXIR, "TMPL", _ELIXIR % "EEx.eval_string(v, assigns: [])"),
+    (ELIXIR, "DESER", _ELIXIR % ":erlang.binary_to_term(v)"),
+    (ELIXIR, "PATH", _ELIXIR % "File.read!(v)"),
+    (ELIXIR, "REDIR", _ELIXIR % "redirect(conn, external: v)"),
+    (ELIXIR, "XSS", _ELIXIR % "html(conn, v)"),
+    (ELIXIR, "SSRF", _ELIXIR % "HTTPoison.get!(v)"),
+    (ELIXIR, "REFL", _ELIXIR % "apply(Worker, String.to_atom(v), [])"),
     (CSHARP, "CMD", _CSHARP % 'Process.Start("cmd.exe", "/c " + v)'),
     (CSHARP, "SQL", _CSHARP % "new SqlCommand(\"SELECT * FROM t WHERE a = '\" + v + \"'\", conn)"),
     (CSHARP, "PATH", _CSHARP % "System.IO.File.ReadAllText(v)"),

@@ -34,6 +34,7 @@ from ..languages import (
     CPP,
     CSHARP,
     DART,
+    ELIXIR,
     GO,
     GROOVY,
     JAVA,
@@ -132,6 +133,7 @@ _LINE_COMMENTS: Dict[str, Tuple[str, ...]] = {
     GROOVY: ("//",),
     SWIFT: ("//",),
     DART: ("//",),
+    ELIXIR: ("#",),
 }
 
 # Trong shell, `#` chỉ mở chú thích khi nó BẮT ĐẦU một từ. `curl http://x/#frag`
@@ -177,6 +179,7 @@ _BLOCK_COMMENTS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     GROOVY: (_C_COMMENT,),
     SWIFT: (_C_COMMENT,),
     DART: (_C_COMMENT,),
+    ELIXIR: (),
 }
 
 # Ngôn ngữ lạ thì nhận cả hai dấu phổ biến: thà nhận dư một dấu mở chú thích còn
@@ -230,6 +233,8 @@ _SPANNING_QUOTES: Dict[str, FrozenSet[str]] = {
     GROOVY: frozenset(),
     SWIFT: frozenset(),
     DART: frozenset(),
+    # Chuỗi của Elixir, cả nháy kép lẫn charlist nháy đơn, chứa được xuống dòng.
+    ELIXIR: frozenset("\"'"),
 }
 _DEFAULT_SPANNING_QUOTES: FrozenSet[str] = frozenset("`")
 
@@ -306,6 +311,9 @@ _BRACKET_STRINGS: Dict[str, Tuple[Tuple[str, str], ...]] = {
 _PERCENT_STRINGS: Dict[str, "re.Pattern[str]"] = {
     RUBY: re.compile(r"(?<![\w)\]}])%[qQwWiIrsx]?(?P<delim>[^\s\w=])"),
     PERL: re.compile(r"(?<![\w$@%&>-])(?:qq|qw|qr|q)[ 	]{0,2}(?P<delim>[^\s\w])"),
+    # Sigil của Elixir: `~s(...)`, `~r/.../`, `~w[...]`. Dạng ba nháy `~S"""`
+    # để lại cho nhánh ba nháy chung.
+    ELIXIR: re.compile(r"~(?:[a-z]|[A-Z][A-Z0-9]*)(?!\"\"\"|''')(?P<delim>[/|\"'(\[{<])"),
 }
 
 # Ngoặc mở thì đóng bằng ngoặc đối ứng và đếm được độ sâu; ký tự khác đóng
@@ -315,6 +323,12 @@ _PERCENT_PAIRS: Dict[str, str] = {"(": ")", "[": "]", "{": "}", "<": ">"}
 # Khối scalar của YAML: `mo_ta: |` hoặc `- run: >-`. Phần thân đóng bằng thụt
 # lề chứ không bằng một dấu đóng, nên nó cần một cơ chế riêng.
 _BLOCK_SCALAR_LANGUAGES: FrozenSet[str] = frozenset({WORKFLOW})
+
+# `?#` và `?"` của Elixir là MỘT ký tự ( số nguyên ), không mở chú thích hay
+# chuỗi. Đọc `?"` là mở chuỗi thì chuỗi giả đó đóng ở dấu nháy MỞ của chuỗi
+# thật kế tiếp, và ruột chuỗi thật ( `"# fortress-scan: ignore-file"` ) lộ ra
+# như một chú thích.
+_CHAR_LITERAL_LANGUAGES: FrozenSet[str] = frozenset({ELIXIR})
 _BLOCK_SCALAR_KEY = re.compile(
     r"^([ \t]*)(?:-[ \t]+)?[A-Za-z_][\w.-]*[ \t]*:[ \t]*[|>][+-]?\d{0,3}[ \t]*$"
 )
@@ -345,6 +359,7 @@ class _CommentSyntax:
     brackets: Tuple[Tuple[str, str], ...] = ()
     block_scalars: bool = False
     percent: Optional["re.Pattern[str]"] = None
+    char_literals: bool = False
 
 
 def comment_syntax(language: Optional[str]) -> _CommentSyntax:
@@ -361,6 +376,7 @@ def comment_syntax(language: Optional[str]) -> _CommentSyntax:
         _BRACKET_STRINGS.get(language, ()),
         language in _BLOCK_SCALAR_LANGUAGES,
         _PERCENT_STRINGS.get(language),
+        language in _CHAR_LITERAL_LANGUAGES,
     )
 
 
@@ -661,6 +677,17 @@ def _starts_percent_string(
     return match.group(0), closer, nest
 
 
+def _char_literal_width(raw: str, index: int, syntax: _CommentSyntax) -> int:
+    """Độ dài của `?x` / `?\\n` bắt đầu tại đây, hoặc 0. `valid?(x)` là tên hàm, không phải ký tự."""
+    if not syntax.char_literals or raw[index] != "?" or index + 1 >= len(raw):
+        return 0
+    if index and (raw[index - 1].isalnum() or raw[index - 1] in "_?!"):
+        return 0
+    if raw[index + 1] in " \t\r\n":
+        return 0
+    return 3 if raw[index + 1] == "\\" and index + 2 < len(raw) else 2
+
+
 def _closes_heredoc(raw: str, region: _Region) -> bool:
     """Dòng này có đúng là dòng kết thúc heredoc không.
 
@@ -707,6 +734,11 @@ def _mask_line(
                 raw, index + len(opener), _Region(closer, True), budget
             )
             pieces.append(text)
+            continue
+        width = _char_literal_width(raw, index, syntax)
+        if width:
+            pieces.append(" " * width)
+            index += width
             continue
         if _starts_line_comment(raw, index, syntax):
             pieces.append(raw[index:])

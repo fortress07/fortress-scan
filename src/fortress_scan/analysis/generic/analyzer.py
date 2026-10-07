@@ -16,9 +16,13 @@ from .profiles import REQUEST_BOUND_PARAMETER, VALIDATION_ANNOTATIONS, GenericSi
 _MAX_STATEMENTS = 20000
 _MAX_STATEMENT_TOKENS = 600
 _CONTINUATION_OPERATORS = frozenset(
-    {"+", "-", "*", "/", ",", "=", "(", "[", "{", "&&", "||", ".", "?", ":", "|", "\\", "+="}
+    {"+", "-", "*", "/", ",", "=", "(", "[", "{", "&&", "||", ".", "?", ":", "|", "\\", "+=", "|>", "<>"}
 )
 _STATEMENT_BREAKS = frozenset({";", "{", "}"})
+_DATA_BRACE_BREAKS = frozenset({";"})
+_LEADING_CONTINUATIONS = frozenset({"|>"})
+_QUERY_FIELDS = frozenset({"query", "fragment"})
+_PIPE_BOUNDARIES = frozenset({"=", "<-", "->", ",", "=>", "&&", "||", ";"})
 _SHELL_QUIET_COMMANDS = frozenset({"echo", "printf", "return", "local", "export", "declare"})
 _EVERY_CATEGORY: FrozenSet[Category] = frozenset(Category)
 
@@ -99,7 +103,7 @@ class _Analysis:
     def run(self, tokens: Sequence[Token]) -> List[Finding]:
         self._collect_declarations(tokens)
         self._seed_annotations(tokens)
-        statements = _split_statements(tokens)
+        statements = _split_statements(tokens, self.spec)
         pending = sorted(self.scoped, key=lambda item: item[0])
         active: List[Tuple[Tuple[int, int], Tuple[int, int], str, Optional[TaintMark]]] = []
         for statement in statements[:_MAX_STATEMENTS]:
@@ -366,36 +370,51 @@ class _Analysis:
                 self.scoped.append((start, end, name, TaintMark(label, token.line, Confidence.HIGH)))
 
     def _seed_conn_patterns(self, tokens: Sequence[Token]) -> None:
-        """`def show(conn, %{"id" => id, "q" => q})`: id, q là tham số request.
+        """Tham số mà Phoenix gắn từ request, chỉ trong thân hàm khai báo nó.
 
-        Chỉ nhận đầu hàm có `conn` ( action của Phoenix controller ); một hàm
-        bình thường khớp mẫu map thì không phải nguồn.
+        - action của controller: `def show(conn, %{"id" => id})` và
+          `def create(conn, params)` ( tham số thứ hai tên `params`, hay một mẫu
+          map khoá chuỗi; `defp helper(conn, message)` thì không );
+        - callback nhận dữ liệu client: `handle_event`, `mount`, `handle_in`...
+          theo `callback_parameters`.
         """
         limit = len(tokens)
+        callbacks = self.spec.callback_parameters
         for index, token in enumerate(tokens):
-            if token.kind != IDENT or token.text not in ("def", "defp"):
+            if token.kind != IDENT or token.text not in ("def", "defp") or token.in_string:
                 continue
-            if index + 3 >= limit or tokens[index + 2].text != "(":
-                continue
-            if tokens[index + 3].text not in ("conn", "_conn"):
+            if index + 2 >= limit or tokens[index + 1].kind != IDENT or tokens[index + 2].text != "(":
                 continue
             close = _group_end(tokens, index + 2)
             if close is None:
                 continue
-            for cursor in range(index + 3, close - 2):
-                if (
-                    tokens[cursor].kind == STRING
-                    and tokens[cursor + 1].kind == OP
-                    and tokens[cursor + 1].text == "=>"
-                    and tokens[cursor + 2].kind == IDENT
-                ):
-                    self.tainted[tokens[cursor + 2].text] = TaintMark(
-                        "tham số request Phoenix", tokens[cursor].line, Confidence.HIGH
-                    )
+            parameters, _ = _read_arguments(tokens, index + 2)
+            name = tokens[index + 1].text
+            chosen: List[Sequence[Token]] = []
+            if name in callbacks and token.text == "def":
+                chosen = [parameters[position] for position in callbacks[name] if position < len(parameters)]
+            elif (
+                token.text == "def"
+                and len(parameters) == 2
+                and _lone_name(parameters[0]) in ("conn", "_conn")
+                and (_lone_name(parameters[1]) == "params" or _string_key_pattern(parameters[1]))
+            ):
+                chosen = [parameters[1]]
+            if not chosen:
+                continue
+            span = _do_end_span(tokens, close)
+            if span is None:
+                continue
+            mark = TaintMark("tham số request Phoenix", token.line, Confidence.HIGH)
+            for parameter in chosen:
+                for bound in _parameter_names(parameter, self.spec):
+                    self.scoped.append((span[0], span[1], bound, mark))
 
     def _analyze_statement(self, statement: Sequence[Token]) -> None:
         if len(statement) > _MAX_STATEMENT_TOKENS:
             statement = statement[:_MAX_STATEMENT_TOKENS]
+        if self.spec.pipe_operators:
+            statement = _desugar_pipes(statement, self.spec)
         if self.spec.language == "shell":
             self._analyze_shell_statement(statement)
             return
@@ -420,8 +439,36 @@ class _Analysis:
         if not right:
             return
         target = _assignment_target(left, self.spec)
+        branches = _inline_branches(right)
+        if branches is not None:
+            # `x = if c, do: a, else: b` của Elixir: giá trị là a hoặc b, điều kiện
+            # không chảy vào giá trị.
+            right = [token for branch in branches for token in branch]
         mark = self._taint_of(right)
         compound = statement[position].text not in ("=", ":=", "<-")
+        if (
+            mark is not None
+            and mark.active_for(Category.REDIRECT)
+            and not compound
+            and all(
+                self._taint_of(branch) is None or self._fixed_origin(branch) or self._query_only(branch)
+                for branch in branches or [right]
+            )
+        ):
+            # `query = "?" <> qs`, `next = "/login?to=" + x`: mọi chỗ dùng biến
+            # này về sau đều mang phần bẩn SAU dấu `?` hay sau một máy chủ đã
+            # chốt, nên nó không còn chọn được nơi chuyển hướng tới.
+            mark = replace(mark, cleared=mark.cleared | {Category.REDIRECT})
+        if self.spec.pattern_assignments:
+            names = _pattern_names(left, self.spec)
+            if names:
+                for name in names:
+                    if mark is not None:
+                        self.tainted[name] = mark
+                        self.sanitized.discard(name)
+                    else:
+                        self.tainted.pop(name, None)
+                return
         if target is not None:
             if self._mentions_sql(right):
                 self.sql_like.add(target)
@@ -604,10 +651,14 @@ class _Analysis:
             selected = arguments[position] if arguments else ()
         if not selected:
             return
+        if sink.argument_prefix and tuple(token.text for token in selected[: len(sink.argument_prefix)]) != sink.argument_prefix:
+            return
         if sink.file_constructors and _constructs(selected, sink.file_constructors):
             dynamic_rule = None
         mark = self._taint_of(selected)
-        if sink.category is Category.REDIRECT and mark is not None and self._fixed_origin(selected):
+        if sink.category is Category.REDIRECT and mark is not None and (
+            self._fixed_origin(selected) or self._query_only(selected)
+        ):
             return
         self._report_expression(
             rule_id=sink.tainted_rule,
@@ -785,6 +836,34 @@ class _Analysis:
             # Mọi thứ sau `?` / `#` đầu tiên là query hay fragment.
             return True
         return _pins_origin(head)
+
+    def _query_only(self, tokens: Sequence[Token]) -> bool:
+        """`%{url | query: q}`, `%URI{host: "a.com", query: q}`: phần bẩn chỉ nằm ở query."""
+        inside: List[Token] = []
+        outside: List[Token] = []
+        depth = 0
+        region = -1
+        for index, token in enumerate(tokens):
+            if token.kind == OP and not token.in_string:
+                if token.text in "([{":
+                    depth += 1
+                elif token.text in ")]}":
+                    if depth == region:
+                        region = -1
+                    depth -= 1
+                elif token.text == "," and depth == region:
+                    region = -1
+            if (
+                region < 0
+                and token.kind == IDENT
+                and token.text in _QUERY_FIELDS
+                and index + 1 < len(tokens)
+                and tokens[index + 1].kind == OP
+                and tokens[index + 1].text == ":"
+            ):
+                region = depth
+            (inside if region >= 0 else outside).append(token)
+        return bool(inside) and self._taint_of(outside) is None and self._taint_of(inside) is not None
 
     def _url_pieces(self, tokens: Sequence[Token]) -> List[str]:
         """Các mảnh của một phép nối chuỗi: chữ, _PIECE_VALUE hoặc _PIECE_TAINTED."""
@@ -1014,6 +1093,8 @@ class _Analysis:
                 ),
             )
             return
+        if self.spec.attribute_constants:
+            tokens = _drop_attributes(tokens)
         if dynamic_rule is None or _is_literal(tokens, _member_dot(self.spec)) or self._is_neutralized(tokens):
             return
         self.builder.add(
@@ -1187,22 +1268,26 @@ def _category_of(rule_id: str) -> Category:
     return get_rule(rule_id).category
 
 
-def _split_statements(tokens: Sequence[Token]) -> List[List[Token]]:
+def _split_statements(tokens: Sequence[Token], spec: Optional[LanguageSpec] = None) -> List[List[Token]]:
     statements: List[List[Token]] = []
     current: List[Token] = []
     depth = 0
-    for token in tokens:
+    openers, closers, breaks = "([", ")]", _STATEMENT_BREAKS
+    if spec is not None and not spec.brace_statements:
+        openers, closers, breaks = "([{", ")]}", _DATA_BRACE_BREAKS
+    limit = len(tokens)
+    for index, token in enumerate(tokens):
         if token.kind == NEWLINE:
-            if depth == 0 and current and not _continues(current[-1]):
+            if depth == 0 and current and not _continues(current[-1]) and not _leads_on(tokens, index + 1, limit):
                 statements.append(current)
                 current = []
             continue
         if token.kind == OP and not token.in_string:
-            if token.text in "([":
+            if token.text in openers:
                 depth += 1
-            elif token.text in ")]":
+            elif token.text in closers:
                 depth = max(0, depth - 1)
-            elif token.text in _STATEMENT_BREAKS:
+            elif token.text in breaks:
                 if current:
                     statements.append(current)
                 current = []
@@ -1219,6 +1304,13 @@ def _split_statements(tokens: Sequence[Token]) -> List[List[Token]]:
 
 def _continues(token: Token) -> bool:
     return token.kind == OP and token.text in _CONTINUATION_OPERATORS
+
+
+def _leads_on(tokens: Sequence[Token], index: int, limit: int) -> bool:
+    """Dòng sau mở đầu bằng `|>`: nó nối tiếp biểu thức của dòng trước."""
+    while index < limit and tokens[index].kind == NEWLINE:
+        index += 1
+    return index < limit and tokens[index].kind == OP and tokens[index].text in _LEADING_CONTINUATIONS
 
 
 def _assignment_position(statement: Sequence[Token], spec: LanguageSpec) -> Optional[int]:
@@ -1814,6 +1906,190 @@ def _constructs(argument: Sequence[Token], types: FrozenSet[str]) -> bool:
     return _group_end(argument, cursor + 1) == len(argument)
 
 
+def _string_key_pattern(parameter: Sequence[Token]) -> bool:
+    """`%{"id" => id}`: mẫu map khoá chuỗi là params của request; `%{id: id}` thì không."""
+    return any(
+        token.kind == STRING and not token.in_string and index + 1 < len(parameter) and parameter[index + 1].text == "=>"
+        for index, token in enumerate(parameter)
+    )
+
+
+def _parameter_names(parameter: Sequence[Token], spec: LanguageSpec) -> List[str]:
+    """Tên được gắn trong một tham số: `params`, `%{"id" => id} = p`, `"room:" <> id`."""
+    lone = _lone_name(parameter)
+    if lone is not None:
+        return [] if lone.startswith("_") or lone in spec.framework_names else [lone]
+    return _pattern_names(parameter, spec, force=True)
+
+
+def _pattern_names(left: Sequence[Token], spec: LanguageSpec, force: bool = False) -> List[str]:
+    """Biến được gắn trong một mẫu Elixir: `{:ok, body, conn}`, `%{"q" => q}`, `[a | rest]`."""
+    meaningful = [token for token in left if not token.in_string]
+    if meaningful and meaningful[0].kind == IDENT and meaningful[0].text in ("with", "for"):
+        meaningful = meaningful[1:]
+    if not meaningful:
+        return []
+    if not force:
+        first = meaningful[0]
+        if not (first.kind == OP and first.text in ("{", "[", "%")) and not any(
+            token.kind == OP and token.text in ("<>", "=>") for token in meaningful
+        ):
+            return []
+    names: List[str] = []
+    for index, token in enumerate(meaningful):
+        if token.kind != IDENT or token.text.startswith("_") or not token.text[:1].islower():
+            continue
+        previous = meaningful[index - 1] if index else None
+        following = meaningful[index + 1] if index + 1 < len(meaningful) else None
+        if previous is not None and previous.kind == OP and previous.text in (":", ".", "^", "%"):
+            # `:ok` là atom, `^x` là so khớp với giá trị đã có, `%User{}` là kiểu.
+            continue
+        if following is not None and following.kind == OP and following.text in (":", "(", ".", "=>"):
+            continue
+        if token.text in spec.framework_names or token.text in names:
+            continue
+        names.append(token.text)
+    return names
+
+
+def _drop_attributes(tokens: Sequence[Token]) -> List[Token]:
+    """Bỏ `@ten` ( thuộc tính module, cố định lúc biên dịch ) khỏi một biểu thức."""
+    result: List[Token] = []
+    skip = False
+    for index, token in enumerate(tokens):
+        if skip:
+            skip = False
+            continue
+        if (
+            token.kind == OP
+            and token.text == "@"
+            and index + 1 < len(tokens)
+            and tokens[index + 1].kind == IDENT
+            and tokens[index + 1].in_string == token.in_string
+        ):
+            skip = True
+            continue
+        result.append(token)
+    return result
+
+
+def _inline_branches(right: Sequence[Token]) -> Optional[List[List[Token]]]:
+    """`if c, do: a, else: b` -> [a, b]; None nếu vế phải không có dạng đó."""
+    if len(right) < 4 or right[0].kind != IDENT or right[0].text not in ("if", "unless") or right[0].in_string:
+        return None
+    parts: List[List[Token]] = [[]]
+    depth = 0
+    for token in right[1:]:
+        if token.kind == OP and not token.in_string:
+            if token.text in "([{":
+                depth += 1
+            elif token.text in ")]}":
+                depth -= 1
+            elif token.text == "," and depth == 0:
+                parts.append([])
+                continue
+        parts[-1].append(token)
+    branches = [part[2:] for part in parts[1:] if _argument_label(part) in ("do", "else")]
+    return branches or None
+
+
+def _do_end_span(
+    tokens: Sequence[Token], close: int
+) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+    """Thân `do ... end` ( hay `, do: ...` một dòng ) của hàm có danh sách tham số kết thúc ở `close`."""
+    limit = len(tokens)
+    cursor = close
+    while cursor < limit and cursor < close + 60:
+        token = tokens[cursor]
+        if token.kind == IDENT and token.text == "do" and not token.in_string:
+            if cursor + 1 < limit and tokens[cursor + 1].kind == OP and tokens[cursor + 1].text == ":":
+                stop = cursor + 2
+                while stop < limit and tokens[stop].kind != NEWLINE:
+                    stop += 1
+                last = tokens[stop - 1]
+                return (token.line, token.column), (last.line, last.column + 1)
+            depth = 1
+            for inner in range(cursor + 1, limit):
+                current = tokens[inner]
+                if current.kind != IDENT or current.in_string:
+                    continue
+                before = tokens[inner - 1]
+                if before.kind == OP and before.text in (":", "."):
+                    continue
+                after = tokens[inner + 1] if inner + 1 < limit else None
+                if current.text in ("do", "fn"):
+                    if current.text == "do" and after is not None and after.kind == OP and after.text == ":":
+                        continue
+                    depth += 1
+                elif current.text == "end":
+                    depth -= 1
+                    if depth == 0:
+                        return (token.line, token.column), (current.line, current.column)
+            return None
+        if token.kind == NEWLINE and cursor > close and tokens[cursor - 1].kind == NEWLINE:
+            return None
+        cursor += 1
+    return None
+
+
+def _desugar_pipes(statement: Sequence[Token], spec: LanguageSpec) -> List[Token]:
+    """`a |> f(b)` -> `f(a, b)`, để sink và bộ khử độc nhìn thấy đúng đối số đầu."""
+    tokens = list(statement)
+    for _ in range(64):
+        pipe = next(
+            (
+                index
+                for index, token in enumerate(tokens)
+                if token.kind == OP and not token.in_string and token.text in spec.pipe_operators
+            ),
+            None,
+        )
+        if pipe is None:
+            return tokens
+        start = pipe
+        depth = 0
+        while start > 0:
+            token = tokens[start - 1]
+            if token.kind == OP and not token.in_string:
+                if token.text in ")]}":
+                    depth += 1
+                elif token.text in "([{":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                elif depth == 0 and token.text in _PIPE_BOUNDARIES:
+                    break
+            elif depth == 0 and token.kind == IDENT and token.text in ("do", "else") and not token.in_string:
+                break
+            start -= 1
+        cursor = pipe + 1
+        head = cursor
+        if cursor < len(tokens) and tokens[cursor].kind == OP and tokens[cursor].text == ":":
+            cursor += 1
+        chain, after = _read_chain(tokens, cursor, spec)
+        if chain is None:
+            # `|> (fn x -> ... end).()`: không đọc được, bỏ dấu pipe đi.
+            tokens[pipe : pipe + 1] = [replace(tokens[pipe], text=",")]
+            continue
+        callee = tokens[head:after]
+        if after < len(tokens) and tokens[after].kind == OP and tokens[after].text == "(":
+            finish = _group_end(tokens, after)
+            if finish is None:
+                return tokens
+            inner = tokens[after + 1 : finish - 1]
+        else:
+            finish = after
+            inner = []
+        pipe_token = tokens[pipe]
+        rebuilt = list(callee) + [replace(pipe_token, text="(")] + tokens[start:pipe]
+        if inner:
+            rebuilt.append(replace(pipe_token, text=","))
+            rebuilt.extend(inner)
+        rebuilt.append(replace(pipe_token, text=")"))
+        tokens[start:finish] = rebuilt
+    return tokens
+
+
 def _lone_name(argument: Sequence[Token]) -> Optional[str]:
     meaningful = [token for token in argument if not token.in_string]
     if len(meaningful) == 1 and meaningful[0].kind == IDENT:
@@ -1914,6 +2190,16 @@ _ALWAYS_SQL = frozenset(
         "PQexec",
         "PQexecParams",
         "PQsendQuery",
+        # Ecto, Postgrex, MyXQL, Exqlite: chỉ nhận SQL.
+        "Repo.query",
+        "Repo.query!",
+        "SQL.query",
+        "SQL.query!",
+        "Postgrex.query",
+        "Postgrex.query!",
+        "MyXQL.query",
+        "MyXQL.query!",
+        "Sqlite3.execute",
         # JDBC, JPA, JdbcTemplate, Android: các API này chỉ nhận SQL/JPQL.
         "executeQuery",
         "executeUpdate",
@@ -2299,7 +2585,8 @@ def _concatenation_operands(tokens: Sequence[Token]) -> List[List[Token]]:
                 depth -= 1
             elif depth == 0 and token.text in (",", ";"):
                 break
-            elif depth == 0 and token.text == "+":
+            elif depth == 0 and token.text in ("+", "<>"):
+                # `<>` là phép nối chuỗi của Elixir.
                 operands.append([])
                 continue
         operands[-1].append(token)

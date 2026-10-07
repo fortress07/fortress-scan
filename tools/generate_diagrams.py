@@ -600,13 +600,14 @@ def diagram_owasp(theme: str) -> str:
 LANGUAGE_COVERAGE: Sequence[Tuple[str, str, int, str]] = (
     ("Python", "AST + luồng dữ liệu, xuyên file", 27, "full"),
     ("C / C++ / Objective-C", "6 luật bộ nhớ + lệnh, SQL, path, dlopen", 5, "native"),
-    # Số họ rule của Java, Kotlin, Groovy, Scala, Go, C#, Swift, Dart đếm từ
+    # Số họ rule của Java, Kotlin, Groovy, Scala, Go, C#, Swift, Dart, Elixir đếm từ
     # tests/test_language_family_coverage.py: mỗi họ có một mẫu bắt được thật.
     ("Java", "Servlet, Spring, Android", 14, "token"),
     ("Kotlin", "Spring, Ktor, Android", 14, "token"),
     ("Groovy / Jenkinsfile", "Grails, pipeline Jenkins", 14, "token"),
     ("C#", "ASP.NET Core, ADO.NET", 12, "token"),
     ("Swift", "Vapor, Hummingbird, iOS", 11, "token"),
+    ("Elixir", "Phoenix, LiveView, Ecto", 11, "token"),
     ("JavaScript / TypeScript", "Express, Node", 9, "token"),
     ("Scala", "Play, Akka HTTP, Slick", 9, "token"),
     ("Go", "net/http, gin, echo", 8, "token"),

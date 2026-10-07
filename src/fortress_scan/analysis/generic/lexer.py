@@ -64,6 +64,14 @@ class LexerProfile:
     # `sql"... #$cot"` của Slick: trong chuỗi tham số hoá, dấu này DÁN giá trị
     # nguyên văn vào câu lệnh, tức là đúng chỗ còn lại của SQL injection.
     splice_marker: str = ""
+    # Elixir: `~s(...)`, `~r/.../i`, `~S"""..."""`. Chữ thường nội suy `#{}`,
+    # chữ hoa giữ nguyên văn.
+    sigils: bool = False
+    # Elixir: `?a`, `?#`, `?'` là một ký tự, không mở chú thích hay chuỗi.
+    question_char_literals: bool = False
+    # Elixir / Ruby / Julia: `File.read!`, `valid?` - ký tự này chỉ được đứng
+    # CUỐI tên, và không phải khi nó là nửa đầu của `!=`.
+    identifier_suffixes: str = ""
     multichar_operators: Tuple[str, ...] = (
         "===",
         "!==",
@@ -137,6 +145,10 @@ class Tokenizer:
             if self._read_triple_string():
                 continue
             if self._read_string():
+                continue
+            if self._profile.sigils and char == "~" and self._read_sigil():
+                continue
+            if self._profile.question_char_literals and char == "?" and self._read_char_literal():
                 continue
             if char.isdigit():
                 self._read_number()
@@ -375,6 +387,77 @@ class Tokenizer:
         self._advance_over(segment)
         return True
 
+    def _read_sigil(self) -> bool:
+        """`~s(SELECT #{x})`, `~r/a#b/i`, `~w[a b]`, `~H\"\"\"...\"\"\"`."""
+        source = self._source
+        cursor = self._index + 1
+        if cursor >= self._length or not source[cursor].isalpha():
+            return False
+        if source[cursor].islower():
+            letters_end = cursor + 1
+        else:
+            letters_end = cursor
+            while letters_end < self._length and (source[letters_end].isupper() or source[letters_end].isdigit()):
+                letters_end += 1
+        if letters_end >= self._length:
+            return False
+        letters = source[cursor:letters_end]
+        interpolating = letters.islower()
+        opener = source[letters_end]
+        if source.startswith('"""', letters_end) or source.startswith("'''", letters_end):
+            delimiter = source[letters_end : letters_end + 3]
+            end = source.find(delimiter, letters_end + 3)
+            body_start = letters_end + 3
+            body_end = self._length if end == -1 else end
+            stop = self._length if end == -1 else end + 3
+        else:
+            closer = _SIGIL_PAIRS.get(opener, opener)
+            if opener not in _SIGIL_DELIMITERS:
+                return False
+            body_start = letters_end + 1
+            stop = body_start
+            while stop < self._length:
+                current = source[stop]
+                if interpolating:
+                    span = self._interpolation_span(stop)
+                    if span != -1:
+                        stop = span
+                        continue
+                if current == "\\" and stop + 1 < self._length:
+                    stop += 2
+                    continue
+                if current == closer:
+                    break
+                stop += 1
+            body_end = stop
+            stop = min(self._length, stop + 1)
+        # Bộ sửa đổi dính sau dấu đóng: `~r/x/iu`.
+        while stop < self._length and source[stop].isalpha():
+            stop += 1
+        body = source[body_start:body_end][:_MAX_STRING_LENGTH]
+        segment = source[self._index : stop]
+        self._prefix = "~" + letters
+        self._emit(STRING, body, quote=opener)
+        if interpolating:
+            self._scan_interpolations(body)
+        self._index = stop
+        self._advance_over(segment)
+        return True
+
+    def _read_char_literal(self) -> bool:
+        """`?a`, `?\\n`, `?#` của Elixir là một số nguyên, không phải toán tử."""
+        cursor = self._index + 1
+        if cursor >= self._length or self._source[cursor] in " \t\r\n":
+            return False
+        if self._tokens:
+            last = self._tokens[-1]
+            if last.kind in (IDENT, NUMBER) and last.line == self._line and last.column + len(last.text) == self._column:
+                return False
+        width = 3 if self._source[cursor] == "\\" and cursor + 1 < self._length else 2
+        self._emit(NUMBER, self._source[self._index : self._index + width])
+        self._advance(width)
+        return True
+
     def _skip_quoted(self, index: int) -> int:
         """Bỏ qua một chuỗi lồng nằm bên trong vùng nội suy."""
         quote = self._source[index]
@@ -568,6 +651,12 @@ class Tokenizer:
         cursor = self._index
         while cursor < self._length and _is_identifier_part(self._source[cursor], self._profile):
             cursor += 1
+        if (
+            cursor < self._length
+            and self._source[cursor] in self._profile.identifier_suffixes
+            and self._source[cursor + 1 : cursor + 2] != "="
+        ):
+            cursor += 1
         self._emit(IDENT, self._source[self._index : cursor])
         self._advance(cursor - self._index)
 
@@ -579,6 +668,10 @@ class Tokenizer:
                 return
         self._emit(OP, self._source[self._index])
         self._advance(1)
+
+
+_SIGIL_PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+_SIGIL_DELIMITERS = frozenset("([{<\"'/|")
 
 
 def _matching_index(text: str, start: int, opener: str, closer: str) -> int:
