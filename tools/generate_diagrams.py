@@ -29,6 +29,9 @@ from typing import Dict, List, Sequence, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from fortress_scan.binary import catalogue as binary_catalogue  # noqa: E402
+from fortress_scan.binary import scoring as binary_scoring  # noqa: E402
+from fortress_scan.binary.model import Verdict  # noqa: E402
 from fortress_scan.core.registry import all_rules  # noqa: E402
 
 OUT = ROOT / "docs" / "img"
@@ -118,6 +121,25 @@ MEASUREMENTS = {
 }
 
 REPS = 7
+
+
+# --------------------------------------------------------------------------
+# Phép đo của bộ phân tích tệp thực thi. Bộ tệp lành là phần mềm đã cài trên
+# máy đo, nên không suy ra được từ mã: chạy lại bằng đúng lệnh ghi ở "roots".
+# --------------------------------------------------------------------------
+
+BINARY_CORPUS = {
+    "files": 1108,
+    "megabytes": 626,
+    "seconds": 245.4,
+    "none": 1094,
+    "low": 14,
+    "flagged": 0,  # từ mức "đáng ngờ" trở lên: trên bộ tệp lành, mỗi tệp là một báo nhầm
+    "roots": "/usr/bin /usr/sbin /usr/lib/jvm /usr/local/go /usr/lib/python3.13",
+}
+
+# Bộ fixture dựng bằng tay: tests/test_binary_indicators.py, SHAPED_SAMPLES.
+BINARY_SHAPED = {"samples": 11, "high": 10, "likely": 1, "families": 5}
 
 
 # --------------------------------------------------------------------------
@@ -697,6 +719,129 @@ def diagram_analyzers(theme: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# 8. Phân tích tệp thực thi: bộ dấu hiệu, thang kết luận, kết quả đo ( beta )
+# --------------------------------------------------------------------------
+
+
+def _pct(part: int, whole: int) -> str:
+    return ("%.2f%%" % (100.0 * part / whole if whole else 0.0)).replace(".", ",")
+
+
+def diagram_binary_triage(theme: str) -> str:
+    cv = Canvas(486, theme)
+    c = cv.c
+
+    specs = list(binary_catalogue.SPECS.values())
+    counts = Counter(spec.category for spec in specs)
+    attack = {code for spec in specs for code in (spec.attack or ())}
+
+    cv.title(
+        "Phân tích tệp thực thi tìm dấu hiệu ransomware ( beta )",
+        "%d dấu hiệu, %d kỹ thuật ATT&CK. Chỉ đọc byte của tệp, không bao giờ chạy nó."
+        % (len(specs), len(attack)),
+    )
+
+    groups = (
+        ("structural", "CẤU TRÚC", c["orange"],
+         "header, section, entropy, overlay, packer",
+         "PE · ELF · Mach-O · JAR · script"),
+        ("capability", "NĂNG LỰC", c["blue"],
+         "import, symbol, chuỗi lệnh gọi",
+         "mã hoá hàng loạt · chặn khôi phục"),
+        ("content", "NỘI DUNG", c["pink"],
+         "văn bản và dữ liệu nằm trong tệp",
+         "ghi chú tống tiền · .onion · ví"),
+    )
+    col_w, gap, col_h = 274, 15, 118
+    y0 = 76
+    for index, (key, name, color, what, examples) in enumerate(groups):
+        x = PAD + index * (col_w + gap)
+        cv.panel(x, y0, col_w, col_h, color)
+        cv.text(x + 20, y0 + 28, name, size=13, fill=color, weight="700")
+        label = "%d dấu hiệu" % counts[key]
+        width = int(len(label) * 10 * 0.60) + 18
+        cv.chip(x + col_w - 20 - width, y0 + 14, label, color)
+        cv.text(x + 20, y0 + 56, what, size=10.5, fill=c["text"], opacity="0.92")
+        cv.rect(x + 14, y0 + 70, col_w - 28, 34, color, rx=7, opacity="0.10")
+        cv.text(x + 24, y0 + 92, examples, size=9.5, fill=c["text"], font=MONO,
+                opacity="0.90")
+
+    # Thang kết luận. Bề rộng mỗi khoảng tỉ lệ với khoảng điểm thật trong
+    # `binary_scoring.BANDS`, nên đổi ngưỡng là hình tự đổi theo.
+    ladder_y = y0 + col_h + 32
+    cv.text(PAD, ladder_y, "Thang kết luận, theo khoảng điểm", size=12, weight="700")
+    colors = {
+        "none": c["green"], "low": c["yellow"], "suspicious": c["orange"],
+        "likely": c["red"], "high": c["red"],
+    }
+    short = {
+        "none": "sạch", "low": "cần lưu ý", "suspicious": "đáng ngờ",
+        "likely": "nhiều khả năng", "high": "rõ rệt",
+    }
+    bands = [(verdict, binary_scoring.BANDS[verdict]) for verdict in sorted(Verdict)]
+    span = sum(high - low + 1 for _, (low, high) in bands)
+    bar_y, bar_w, bar_h = ladder_y + 14, W - PAD * 2, 26
+    x = PAD
+    for verdict, (low, high) in bands:
+        width = (high - low + 1) / span * bar_w
+        color = colors[verdict.key]
+        cv.rect(x, bar_y, width - 3, bar_h, color, rx=6, opacity="0.18")
+        cv.rect(x, bar_y, width - 3, bar_h, "none", rx=6, stroke=color, sw=1.2,
+                opacity="0.45")
+        cv.text(x + (width - 3) / 2, bar_y + 17, "%d-%d" % (low, high), size=10,
+                fill=color, anchor="middle", font=MONO, weight="700")
+        cv.text(x + (width - 3) / 2, bar_y + bar_h + 16, short[verdict.key],
+                size=10, fill=c["muted"], anchor="middle")
+        x += width
+
+    cv.text(PAD, bar_y + bar_h + 38,
+            "Entropy cao và packer không bao giờ tự đẩy kết luận quá mức \"cần lưu ý\": "
+            "một trình cài đặt bị pack cũng có đúng chân dung đó.",
+            size=10, fill=c["muted"])
+
+    # Hai bộ tệp dùng để đo: một bộ lành để xem có báo nhầm, một bộ dựng tay
+    # để xem có bỏ sót. Thiếu bộ nào thì con số còn lại nói được rất ít.
+    corpus = BINARY_CORPUS
+    shaped = BINARY_SHAPED
+    cards = (
+        (c["green"], "BỘ TỆP LÀNH",
+         "%d tệp · %d MB · %s giây" % (corpus["files"], corpus["megabytes"],
+                                      _fmt(corpus["seconds"])),
+         [("%d tệp từ mức \"đáng ngờ\" trở lên" % corpus["flagged"], c["green"]),
+          ("%d tệp \"cần lưu ý\" ( %s )" % (corpus["low"], _pct(corpus["low"], corpus["files"])),
+           c["muted"]),
+          ("%d tệp sạch ( %s )" % (corpus["none"], _pct(corpus["none"], corpus["files"])),
+           c["muted"])]),
+        (c["purple"], "BỘ DỰNG TAY TRONG TEST",
+         "%d mẫu · %d họ định dạng" % (shaped["samples"], shaped["families"]),
+         [("%d/%d mẫu đạt \"nhiều khả năng\" trở lên" % (shaped["high"] + shaped["likely"],
+                                                        shaped["samples"]), c["purple"]),
+          ("%d mẫu \"rõ rệt\", %d mẫu \"nhiều khả năng\"" % (shaped["high"], shaped["likely"]),
+           c["muted"]),
+          ("pe · elf · mach-o · zip · script", c["muted"])]),
+    )
+    card_y, card_w, card_h = bar_y + bar_h + 56, 418, 100
+    for index, (color, name, meta, rows) in enumerate(cards):
+        x = PAD + index * (card_w + 16)
+        cv.panel(x, card_y, card_w, card_h, color)
+        cv.text(x + 20, card_y + 26, name, size=12, fill=color, weight="700")
+        cv.text(x + 20, card_y + 44, meta, size=10, fill=c["muted"], font=MONO)
+        for row_index, (row, row_color) in enumerate(rows):
+            ry = card_y + 64 + row_index * 16
+            cv.circle(x + 24, ry - 4, 3, row_color, opacity="0.90")
+            cv.text(x + 36, ry, row, size=10, fill=row_color,
+                    weight="700" if row_index == 0 else "400",
+                    opacity="0.92" if row_index else None)
+
+    cv.text(PAD, card_y + card_h + 22,
+            "python tools/measure_binary_corpus.py %s" % corpus["roots"],
+            size=9.5, fill=c["muted"], font=MONO)
+    cv.footer("Bộ tệp lành là phần mềm đã cài trên máy đo, mỗi máy một khác, nên con số "
+              "chỉ có nghĩa khi anh em chạy lại đúng lệnh trên.")
+    return cv.render()
+
+
+# --------------------------------------------------------------------------
 
 DIAGRAMS = {
     "taint-flow": diagram_taint_flow,
@@ -706,6 +851,7 @@ DIAGRAMS = {
     "owasp-2025": diagram_owasp,
     "languages": diagram_languages,
     "analyzers": diagram_analyzers,
+    "binary-triage": diagram_binary_triage,
 }
 
 
