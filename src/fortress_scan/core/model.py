@@ -50,6 +50,18 @@ class Category(str, Enum):
     SSRF = "ssrf"
     REDIRECT = "redirect"
     HTTP_HEADER = "http-header"
+    CRYPTO = "crypto"
+    TLS = "tls"
+    SECRET = "hardcoded-secret"
+    JWT = "jwt"
+    CORS = "cors"
+    COOKIE = "cookie"
+    ACCESS_CONTROL = "access-control"
+    MASS_ASSIGNMENT = "mass-assignment"
+    PERMISSION = "file-permission"
+    TEMP_FILE = "temp-file"
+    DEBUG = "debug"
+    PROTOTYPE = "prototype-pollution"
     # Ba họ dưới đây không nói "mã này có thể bị khai thác" mà nói "đã có
     # người vào đây rồi". Tách riêng vì người đọc xử lý hai thứ đó theo hai
     # quy trình khác nhau: một cái vào hàng đợi sửa lỗi, một cái vào quy trình

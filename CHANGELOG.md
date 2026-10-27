@@ -10,6 +10,113 @@ Số bản theo [Semantic Versioning](https://semver.org/lang/vi/). Từ 0.1.0 t
 
 ## Chưa phát hành
 
+### Mật mã, TLS và secret viết cứng
+
+Mười rule mới, chạy trên cả 12 ngôn ngữ lập trình ( Python theo AST, phần còn lại theo token ),
+gắn nhãn **A04:2025 Cryptographic Failures** và **A07:2025 Authentication Failures**:
+
+- `FSB-CRYPTO-001` … `-008`: MD5 / SHA-1 dựng chữ ký, mật khẩu băm bằng hàm băm nhanh, DES /
+  3DES / RC4 / RC2 / Blowfish, ECB, IV / nonce / muối là hằng, khoá viết cứng, PRNG đoán được sinh
+  token, khoá RSA / DSA dưới 2048 bit.
+- `FSB-TLS-001`: tắt xác minh chứng chỉ TLS hoặc khoá máy chủ SSH.
+- `FSB-SECRET-001`: mật khẩu, token, khoá API viết cứng, kể cả theo định dạng token của AWS,
+  GitHub, GitLab, Slack, Stripe, Google, SendGrid, npm, OpenAI, Anthropic.
+
+Giá trị bí mật được che thành `[redacted]` trong đoạn mã, dấu vết và thông điệp. Mẫu khoá riêng
+PEM trong `security/redaction.py` giờ che cả phần thân base64, không chỉ dòng tiêu đề.
+
+### Cấu hình giải tuần tự và JWT
+
+- `FSB-DESER-003`: thư viện bị bật chế độ đa hình cho payload tự chọn kiểu ( Json.NET
+  `TypeNameHandling`, Jackson default typing, fastjson autoType, XStream `AnyTypePermission.ANY`,
+  Kryo không bắt đăng ký lớp, Oj `mode: :object`, `create_additions: true` ).
+- `FSB-JWT-001`: JWT được nhận mà không xác minh chữ ký, hoặc nhận thuật toán `none`, trên Python,
+  Java, C#, Go, Ruby và JavaScript / TypeScript. Lời gọi chỉ đọc trước `iss` / `kid` rồi xác minh
+  trong cùng hàm không bị báo.
+- `YAML.unsafe_load`, `Psych.unsafe_load` và `Oj.object_load` của Ruby được thêm vào bộ giải tuần
+  tự nguy hiểm của `FSB-DESER-001` / `-002`.
+
+### CORS và cookie phiên
+
+- `FSB-CORS-001`: phản hồi vừa dội lại `Origin` của người gửi, vừa đặt
+  `Access-Control-Allow-Credentials: true`, nên mọi trang web đọc được dữ liệu sau đăng nhập.
+  Nhận dạng flask-cors, Starlette / FastAPI, django-cors-headers, gói `cors` của express, Spring
+  `allowedOriginPatterns`, ASP.NET `SetIsOriginAllowed`, `AllowOriginFunc` của middleware Go, và
+  cả lối tự ghi header trên mọi ngôn ngữ đọc theo token.
+- `FSB-COOKIE-001`: cookie mang phiên đăng nhập thiếu cờ `HttpOnly`, hoặc bị tắt thẳng. Mặc định
+  không có HttpOnly của `set_cookie` ( Flask, Django ), `res.cookie` ( express ), `setcookie`
+  ( PHP ) và struct `http.Cookie` ( Go ) đều đã được kiểm bằng cách chạy thật rồi đọc header.
+- Hình `Access-Control-Allow-Origin: *` và những tổ hợp mà thư viện tự ném lỗi ( Spring
+  `allowedOrigins("*")`, ASP.NET `AllowAnyOrigin()`, flask-cors `send_wildcard=True`, cả ba khi đi
+  kèm credentials ) **không** bị báo, vì chúng không chạy được hoặc trình duyệt tự từ chối.
+
+### Kiểm soát truy cập và mass assignment
+
+- `FSB-ACCESS-001`: quyền được quyết định bằng một trường mà người gửi tự đặt được -- query, form,
+  body, cookie hay header. Khoá phải nói về quyền ( `role`, `is_admin`, `permissions`,
+  `user_type` ), và giá trị phải được **so với một giá trị quyền** trong một điều kiện hay một
+  `return`, hoặc dùng thẳng làm điều kiện khi khoá là cờ đúng / sai. Python trên AST; JS / TS,
+  PHP, Ruby, Java, Go, C# và phần còn lại trên token, gồm cả hậu tố `if` của Ruby và
+  `r.URL.Query().Get(...)` của Go. Header hạ xuống mức trung bình, vì gateway phía trước có thể đã
+  xoá nó.
+- `FSB-MASS-001`: cả gói dữ liệu người gửi đi thẳng vào đối tượng được lưu -- `**request.POST`,
+  `User.create(req.body)`, `Object.assign(user, req.body)`, `$request->all()`, `params.permit!`,
+  hoặc `permit(...)` có chính trường quyền trong danh sách.
+- Hai kiểm tra **chỉ dựa vào cấu hình** đã bị bỏ sau khi đo trên repo thật: `$guarded = []` của
+  Laravel và `fields = "__all__"` của Django nằm hợp lệ trong chính mã framework ( `Pivot.php`,
+  `DatabaseNotification.php`, `UserChangeForm` ), nên phải thấy request ở ngay chỗ ghi thì mới báo.
+- Báo nhầm tìm ra trên mastodon và đã khoá lại bằng kiểm tra hồi quy: `permit(:page,
+  *Admin::ActionLogFilter::KEYS)` ( chữ `Admin` là tên mô đun, không phải cột ), và
+  `translated_params[:role_ids] = ... if params[:permissions] == 'staff'` ( bộ lọc truy vấn của
+  admin API, không phải phép cấp quyền ).
+
+### Prototype pollution
+
+- `FSB-PROTO-001`: một hàm gộp trên JS / TS duyệt khoá của đối tượng nguồn rồi ghi
+  `target[key] = ...`. Trong JavaScript, `obj['__proto__']` không tạo khoá tên `__proto__` mà đi
+  thẳng vào nguyên mẫu, nên một nguồn chứa `{"__proto__": {"isAdmin": true}}` bơm được thuộc tính
+  mà mọi đối tượng trong tiến trình đọc thấy.
+- Rule đòi HAI điều kiện cùng lúc: hàm phải là hàm gộp ( tên chứa merge / extend / deep / copy,
+  hoặc nó gọi lại chính nó ), VÀ phải thấy dữ liệu người gửi đi vào hàm đó trong cùng tệp
+  ( `merge(config, req.body)`, `JSON.parse(...)`, hay vòng lặp duyệt thẳng `req.body` ). Bản đầu
+  chỉ đòi điều kiện thứ nhất và báo đúng 9 chỗ trên 28 repo thật -- ace.js, wysihtml5, cldrjs,
+  globalize, moment -- tất cả đều là hàm gộp nội bộ của thư viện đi kèm, nơi nguồn là chính cấu
+  hình của thư viện. Cả 9 đều im sau khi thêm điều kiện thứ hai, và hình `extend` của moment có
+  một bài kiểm tra riêng giữ nó im: `hasOwnProp` là bộ bọc của chính moment nên phép dò không
+  nhận ra nó là phép canh.
+- Phải đọc kèm giới hạn: chỗ gọi hàm gộp phải nằm trong CÙNG tệp với hàm. Hàm tiện ích ở
+  `utils/merge.js` và route ở `routes/settings.js` là hai tệp, nên lối đó cần phân tích xuyên
+  file và không thuộc rule này.
+
+### Zip slip, quyền tệp, tệp tạm và chế độ gỡ lỗi
+
+- `FSB-PATH-002`: tên thành viên trong tệp nén nối vào thư mục đích mà không ai kiểm lại.
+  `tarfile.extractall()` không có `filter=` ( CVE-2007-4559 ), `shutil.unpack_archive`,
+  `new File(dir, entry.getName())` của Java và `filepath.Join(dest, hdr.Name)` của Go.
+  `zipfile.extractall` KHÔNG bị báo: `ZipFile._extract_member` tự bỏ dấu phân cách đầu và `..`.
+- `FSB-PERM-001`: quyền mở cho mọi người dùng trên máy ghi, qua họ `chmod` trên Python, Go, PHP,
+  Ruby, Java và shell, kèm `setWritable(true, false)`, `PosixFilePermissions.fromString` và
+  `umask(0)`. Chế độ truyền cho hàm TẠO tệp hay thư mục không bị báo, vì chmod bỏ qua umask còn
+  `open` / `mkdir` / `MkdirAll` thì không -- `os.MkdirAll(p, 0777)` với umask 022 ra 0755.
+- `FSB-TMP-001`: `tempfile.mktemp()`, và phép ghi vào đường dẫn hằng dưới `/tmp`, `/var/tmp`,
+  `/dev/shm` trên Python, JS / TS, Java, Go, PHP, C# và shell. Phép đọc không bị báo.
+- `FSB-DEBUG-001`: `app.run(debug=True)` ngoài `if __name__ == "__main__"`,
+  `DebuggedApplication(evalex=True)`, `DEBUG = True` trong tệp cấu hình không mang tên dev /
+  local, `UseDeveloperExceptionPage()` không nằm sau phép kiểm môi trường, và
+  `ini_set('display_errors', 1)`.
+- Báo nhầm tìm ra trên django và đã khoá lại bằng kiểm tra hồi quy: `current = os.umask(0)` rồi
+  `os.umask(current)` ( `core/management/templates.py` ) là lối ĐỌC umask hiện tại, vì umask trả
+  về giá trị cũ. Chỉ khi kết quả bị bỏ thì lời gọi mới thật sự là phép đặt.
+- Quét 28 dự án thật cho bốn rule này: bắt đúng bài học zip slip của WebGoat
+  ( `ProfileZipSlip.java` ) và `ini_set('display_errors', 1)` của DVWA, ngoài ra không báo chỗ nào.
+- Báo nhầm tìm ra trên django và đã khoá lại bằng kiểm tra hồi quy: `current = os.umask(0)` rồi
+  `os.umask(current)` ( `core/management/templates.py` ) là lối ĐỌC umask hiện tại, vì umask trả
+  về giá trị cũ. Chỉ khi kết quả bị bỏ thì lời gọi mới thật sự là phép đặt.
+
+### Ngữ cảnh tệp
+
+- Tên tệp kiểm thử có chữ viết tắt đứng trước hậu tố, như `RegistrationUITest.java`, `APITests.java`.
+- Thư mục dự án .NET đặt tên theo dấu chấm, như `Newtonsoft.Json.Tests`, `Shop.Api.UnitTests`.
 ### Thêm: phân tích tệp thực thi tìm dấu hiệu ransomware ( beta )
 
 Lệnh con mới `fortress-scan binary <tệp hoặc thư mục>` đọc thẳng byte của một tệp đã biên dịch
@@ -108,7 +215,7 @@ tuyến tính đó có bài đo riêng trên 10 hình dạng đầu vào thù đ
 
 ### Số liệu
 
-**46 rule trên 20 họ lỗ hổng. 1588 kiểm tra tự động**, trong đó 87 bài cho riêng phần truy vết
+**67 rule trên 34 họ lỗ hổng. 2149 kiểm tra tự động**, trong đó 87 bài cho riêng phần truy vết
 xâm nhập: mỗi rule một hiện vật thật, một cây thư mục lành phải im lặng hoàn toàn, phép nhận loại
 hiện vật cho 19 đường dẫn, và bộ đo tính tuyến tính của bộ xóa.
 

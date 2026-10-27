@@ -10,10 +10,10 @@ Giao diện và báo cáo **hoàn toàn bằng tiếng Việt** cho anh em.
 [![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/phụ%20thuộc%20ngoài-0-brightgreen?style=for-the-badge)](pyproject.toml)
 
-[![rules](https://img.shields.io/badge/46-rule-e05d44?style=flat-square)](#-46-rule-trên-20-họ-lỗ-hổng)
-[![families](https://img.shields.io/badge/20-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-46-rule-trên-20-họ-lỗ-hổng)
+[![rules](https://img.shields.io/badge/67-rule-e05d44?style=flat-square)](#-67-rule-trên-34-họ-lỗ-hổng)
+[![families](https://img.shields.io/badge/34-họ%20lỗ%20hổng-fe7d37?style=flat-square)](#-67-rule-trên-34-họ-lỗ-hổng)
 [![languages](https://img.shields.io/badge/14-ngôn%20ngữ-4c1?style=flat-square)](#-quét-được-những-dự-án-nào-)
-[![tests](https://img.shields.io/badge/1588-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
+[![tests](https://img.shields.io/badge/2149-kiểm%20tra%20tự%20động-4c1?style=flat-square)](tests/)
 [![owasp](https://img.shields.io/badge/OWASP%20Top%2010-2025-663399?style=flat-square)](#-đối-chiếu-owasp-top-102025)
 [![network](https://img.shields.io/badge/kết%20nối%20mạng-không%20bao%20giờ-critical?style=flat-square)](#-chỉ-đọc-và-in-báo-cáo-không-làm-gì-khác-)
 
@@ -67,17 +67,17 @@ cáo in ra **cả đường đi** để anh em tự kiểm chứng chứ không 
 
 <table>
 <tr>
-<td align="center"><b>46</b><br/><sub>rule</sub></td>
-<td align="center"><b>20</b><br/><sub>họ lỗ hổng</sub></td>
+<td align="center"><b>67</b><br/><sub>rule</sub></td>
+<td align="center"><b>34</b><br/><sub>họ lỗ hổng</sub></td>
 <td align="center"><b>14</b><br/><sub>ngôn ngữ &amp; định dạng</sub></td>
-<td align="center"><b>1588</b><br/><sub>kiểm tra tự động</sub></td>
+<td align="center"><b>2149</b><br/><sub>kiểm tra tự động</sub></td>
 <td align="center"><b>0</b><br/><sub>phụ thuộc ngoài</sub></td>
 </tr>
 </table>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rules-dark.svg">
-  <img alt="46 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
+  <img alt="67 rule nhìn theo mức độ nghiêm trọng và theo họ lỗ hổng" src="docs/img/rules-light.svg" width="100%">
 </picture>
 
 ---
@@ -90,16 +90,18 @@ trong JSON và SARIF nên anh em lọc theo bản nào cũng được.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/owasp-2025-dark.svg">
-  <img alt="46 rule đối chiếu OWASP Top 10:2025 trên năm mục" src="docs/img/owasp-2025-light.svg" width="100%">
+  <img alt="67 rule đối chiếu OWASP Top 10:2025 trên bảy mục" src="docs/img/owasp-2025-light.svg" width="100%">
 </picture>
 
 | OWASP Top 10:2025 | Rule của Fortress Scan | Nhãn 2021 đi kèm |
 | :--- | :--- | :--- |
-| 🟣 **A01 Broken Access Control** | `FSB-PATH-001` · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
-| 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) | A05:2021 |
+| 🟣 **A01 Broken Access Control** | `FSB-ACCESS-001` ( quyền quyết định bằng trường người gửi tự đặt ) · `FSB-PATH-001` · `FSB-PATH-002` ( zip slip ) · `FSB-REDIR-001` · `FSB-SSRF-001` | A01:2021, và A10:2021 cho SSRF |
+| 🔵 **A02 Security Misconfiguration** | `FSB-XML-001` ( XXE ) · `FSB-CORS-001` ( CORS mở kèm credentials ) · `FSB-COOKIE-001` ( cookie phiên thiếu HttpOnly ) · `FSB-PERM-001` ( quyền tệp ) · `FSB-TMP-001` ( tệp tạm ) · `FSB-DEBUG-001` ( chế độ gỡ lỗi ) | A05:2021 |
 | 🟢 **A03 Software Supply Chain Failures** | `FSB-SUP-001` · `FSB-SUP-002` · `FSB-CI-003` · `FSB-CI-004` | A08:2021 |
+| 🟡 **A04 Cryptographic Failures** | `FSB-CRYPTO-001` … `FSB-CRYPTO-008`: hàm băm và thuật toán đã bị phá, ECB, IV/nonce/muối hằng, khoá viết cứng, PRNG đoán được, khoá RSA ngắn | A02:2021 |
 | 🔴 **A05 Injection** | 20 rule: SQL, OS command, code, template, LDAP, XPath, NoSQL, XSS, EL, reflection, header, file inclusion, CI expression | A03:2021 |
-| 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` | A08:2021 |
+| 💗 **A07 Authentication Failures** | `FSB-TLS-001` ( tắt xác minh chứng chỉ ) · `FSB-SECRET-001` ( mật khẩu, token viết cứng ) · `FSB-JWT-001` ( JWT không xác minh chữ ký ) | A07:2021 |
+| 🟠 **A08 Software or Data Integrity Failures** | `FSB-DESER-*` · `FSB-UNI-*` · `FSB-IMPORT-002` · `FSB-MASS-001` ( mass assignment ) · `FSB-PROTO-001` ( prototype pollution ) | A08:2021 |
 
 > [!IMPORTANT]
 > **Ba chỗ bản 2025 xếp khác hẳn bản 2021**, và đó chính là lý do phải cập nhật:
@@ -142,7 +144,7 @@ không phải một luật khớp mới.
 
 ---
 
-## 🔍 46 rule trên 20 họ lỗ hổng
+## 🔍 67 rule trên 34 họ lỗ hổng
 
 Mỗi rule dưới đây đều có **mẫu mã nguồn thật làm nó bắn**, và với đa số là **một mẫu an toàn
 tương ứng** để chắc nó không kêu bừa. Tất cả chạy tự động trong `tests/test_rule_coverage.py`,
@@ -155,7 +157,7 @@ nên bảng này không thể lệch khỏi code.
 | **Code injection** | 🔴 `FSB-EXEC-001` · 🟡 `-002` | `eval(payload)`, `exec(payload)` |
 | **Template injection ( SSTI )** | 🔴 `FSB-TMPL-001` · 🟡 `-002` | `jinja_env.from_string(tpl_nguoi_dung)` |
 | **Dynamic import / file inclusion** | 🔴 `FSB-IMPORT-001` · 🔵 `-002` | `include($_GET['page'])` |
-| **Giải tuần tự không an toàn** | 🔴 `FSB-DESER-001` · 🟡 `-002` | `pickle.loads(body)` |
+| **Giải tuần tự không an toàn** | 🔴 `FSB-DESER-001` · 🟡 `-002` · 🟡 `-003` | `pickle.loads(body)`, `TypeNameHandling.All`, `enableDefaultTyping()` |
 | **Expression language** | 🔴 `FSB-EL-001` | SpEL `parser.parseExpression(q).getValue()` |
 | **NoSQL injection** | 🟠 `FSB-NOSQL-001` | `{"$where": gia_tri_ng}` |
 | **LDAP injection** | 🟠 `FSB-LDAP-001` | `conn.search_s(base, scope, filter_ng)` |
@@ -165,16 +167,139 @@ nên bảng này không thể lệch khỏi code.
 | **XXE** | 🟠 `FSB-XML-001` | `XMLParser(resolve_entities=True)` |
 | **Trojan Source / ký tự ẩn** | 🟠 `FSB-UNI-001` · 🟡 `-002` · 🔵 `-003` · 🟡 `-004` | ký tự đảo chiều bidi, ký tự rộng bằng không |
 | **Supply chain** | 🔴 `FSB-SUP-001` · 🔵 `-002` | `postinstall` tải script từ xa về chạy |
-| **Path traversal** | 🟠 `FSB-PATH-001` | `open('/data/' + ten_tu_input)` |
+| **Path traversal** | 🟠 `FSB-PATH-001` · 🟠 `-002` ( zip slip ) | `open('/data/' + ten_tu_input)`, `tar.extractall(dest)` |
 | **SSRF** | 🟠 `FSB-SSRF-001` | `requests.get(url_tu_input)` |
 | **Open redirect** | 🟡 `FSB-REDIR-001` | `flask.redirect(request.args['next'])` |
 | **CRLF / header phản hồi** | 🟠 `FSB-HDR-001` | `resp.headers['X-Trace'] = gia_tri_ng` |
 | **Injection trong workflow CI** | 🔴 `FSB-CI-001` · 🔴 `-002` · 🟠 `-003` · 🟡 `-004` | `run: echo "${{ github.event.issue.title }}"` |
+| **Mật mã yếu** | 🟡 `FSB-CRYPTO-001` · 🟠 `-002` · 🟡 `-003` · 🟡 `-004` · 🟡 `-005` · 🟠 `-006` · 🟠 `-007` · 🟡 `-008` | `hashlib.md5(password)`, `AES.new(key, AES.MODE_ECB)` |
+| **Tắt xác minh TLS** | 🟠 `FSB-TLS-001` | `requests.get(url, verify=False)`, `rejectUnauthorized: false` |
+| **Secret viết cứng** | 🟠 `FSB-SECRET-001` | `DB_PASSWORD = "..."`, token AWS / GitHub / Stripe trong mã |
+| **JWT không xác minh** | 🟠 `FSB-JWT-001` | `jwt.decode(t, options={"verify_signature": False})`, `algorithms: ['none']` |
+| **CORS mở kèm credentials** | 🟡 `FSB-CORS-001` | `CORS(app, supports_credentials=True)`, `cors({ origin: true, credentials: true })` |
+| **Cookie phiên thiếu HttpOnly** | 🔵 `FSB-COOKIE-001` | `res.cookie('session', t)`, `httponly=False` |
+| **Quyền quyết định bằng dữ liệu người gửi** | 🟠 `FSB-ACCESS-001` | `if request.args.get('role') == 'admin'`, `$_GET['role'] == 'admin'` |
+| **Mass assignment** | 🟡 `FSB-MASS-001` | `User.objects.create(**request.POST)`, `params.permit!`, `User.create(req.body)` |
+| **Quyền tệp quá rộng** | 🟡 `FSB-PERM-001` | `os.chmod(p, 0o777)`, `chmod -R 777`, `setWritable(true, false)` |
+| **Tệp tạm đoán trước được** | 🟡 `FSB-TMP-001` | `tempfile.mktemp()`, `open('/tmp/app.lock', 'w')` |
+| **Chế độ gỡ lỗi bật** | 🟠 `FSB-DEBUG-001` | `app.run(debug=True)`, `DEBUG = True`, `UseDeveloperExceptionPage()` |
+| **Prototype pollution** | 🟡 `FSB-PROTO-001` | `target[key] = source[key]` trong hàm gộp không loại `__proto__` |
 
 <sub>🔴 critical · 🟠 high · 🟡 medium · 🔵 low</sub>
 
 Xem đầy đủ bằng `python -m fortress_scan --list-rules`, và giải thích từng rule bằng
 `python -m fortress_scan --explain FSB-SQL-001`.
+
+### 🔐 Mật mã, TLS và secret viết cứng
+
+Mười rule `FSB-CRYPTO-*`, `FSB-TLS-001` và `FSB-SECRET-001` chạy trên **cả 12 ngôn ngữ lập trình**
+mà công cụ đọc được ( Python theo AST, phần còn lại theo token ): Python, JavaScript / TypeScript,
+Java, Go, C#, PHP, Ruby, Rust, Lua, Perl, Shell và PowerShell. Nhóm lỗi này không cần dữ liệu
+bẩn chảy tới đâu cả, vì bản thân lời gọi đã sai. Cái khó là **phân biệt lời gọi sai với lời gọi
+trông giống hệt mà vô hại**, nên mỗi rule đọc thêm ngữ cảnh chứ không khớp tên hàm:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-CRYPTO-001` / `-002` | MD5, SHA-1, SHA-256 băm **mật khẩu**, hoặc MD5/SHA-1 dựng **chữ ký, MAC** từ secret | `md5(body)` làm ETag, khoá cache, checksum; chữ ký khai báo `usedforsecurity=False`; băm trước khi đưa vào bcrypt / PBKDF2 |
+| `FSB-CRYPTO-005` / `-006` | IV, nonce, muối hay khoá **thật sự là hằng**: chuỗi, `bytes(16)`, `make([]byte, 16)`, `b"\0" * 16`, kể cả qua một biến trung gian | biến từng được `os.urandom`, `rand.Read`, `getRandomValues` đổ đầy; khoá công khai; khoá mẫu trong thư mục test |
+| `FSB-CRYPTO-007` | `Math.random`, `random.choice`, `rand()` sinh **token, OTP, session id, mật khẩu**, kể cả qua một hàm bọc trả giá trị đó về | jitter, thời gian chờ thử lại, xáo trộn danh sách, bốc token từ bộ từ vựng của mô hình ngôn ngữ |
+| `FSB-TLS-001` | `verify=False`, `rejectUnauthorized: false`, `InsecureSkipVerify: true`, `curl -k`, `TrustManager` rỗng, `AutoAddPolicy` | mã **hiện thực tuỳ chọn** đó trong thư viện, hay công tắc nằm sau điều kiện tuỳ chọn hoặc kết nối nội bộ ( chỉ ghi độ tin cậy thấp kèm lý do ); một ngữ cảnh SSL chỉ báo một lần |
+| `FSB-SECRET-001` | tên mang nghĩa bí mật **và** giá trị trông như bí mật, hoặc đúng định dạng token của AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic | `"password_hash"`, `"API_KEY"` ( tên biến môi trường ), `"changeme"`, `"${TOKEN}"`, hằng của `Enum`, URL CSDL `localhost` mặc định; mật khẩu mẫu trong thư mục test, chữ trong tệp bản dịch |
+
+Giá trị bí mật **không bao giờ đi vào báo cáo**: đoạn mã, dấu vết và thông điệp đều thay nó bằng
+`[redacted]`, để báo cáo SARIF tải lên CI không trở thành chỗ rò rỉ thứ hai.
+
+### 🧩 Cấu hình giải tuần tự và JWT
+
+Hai họ này cũng không cần luồng dữ liệu: lỗi nằm ở **một công tắc cấu hình** của một thư viện cụ
+thể, nên mỗi kiểm tra khớp đúng công tắc đó chứ không khớp tên hàm chung chung như `decode`.
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-DESER-003` | Json.NET `TypeNameHandling` khác `None`, Jackson `enableDefaultTyping()` hay `LaissezFaireSubTypeValidator`, fastjson `autoType`, XStream `AnyTypePermission.ANY`, Kryo `setRegistrationRequired(false)`, Oj `mode: :object`, `create_additions: true` | `TypeNameHandling` đi kèm `SerializationBinder`; validator có danh sách cho phép; mã của chính jackson-databind, Kryo khai báo các công tắc đó |
+| `FSB-JWT-001` ( high ) | token **không ký** được nhận: `algorithms: ['none']`, `parseClaimsJwt`, `UnsecuredJWT`, `RequireSignedTokens = false`, `UnsafeAllowNoneSignatureType` | `JWT.create().sign(Algorithm.none())` ở phía ký; `parse()` của jjwt 0.12 ( đã từ chối token không ký ) |
+| `FSB-JWT-001` ( medium ) | claims được đọc mà **tắt xác minh**: `verify_signature: False`, `JWT.decode(t, k, false)`, `ParseUnverified`, `parse()` của jjwt trước 0.12 | đọc trước `iss` / `kid` rồi xác minh thật trong cùng hàm; hàm tên `peek` / `unverified` / `show`; mã của chính golang-jwt |
+
+Thêm vào đó, `YAML.unsafe_load` và `Psych.unsafe_load` của Ruby ( bản giữ hành vi cũ sau khi Psych 4
+làm `YAML.load` an toàn ) giờ được tính là bộ giải tuần tự nguy hiểm của `FSB-DESER-001` / `-002`.
+
+### 🌍 CORS phản chiếu origin và cookie phiên
+
+Hai họ này cũng là **tổ hợp hai công tắc**, không phải một lời gọi: origin mở chỉ thành lỗ hổng khi
+có credentials đi kèm, còn `HttpOnly` chỉ đáng nói khi cookie đó mang phiên đăng nhập. Hai bảng
+dưới đây được dựng bằng cách **chạy thư viện thật rồi đọc header trả về** ( flask-cors 6.0.5,
+Starlette 1.7.0, django-cors-headers 4.9.0, `cors` 2.8.6 với express 5, Flask 3.1.3, Django 6.1.1,
+PHP 8.3 ), chứ không suy từ tài liệu:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-CORS-001` | credentials được bật **và** origin không bị giới hạn: flask-cors `supports_credentials=True` ( mặc định origins là `*` ), Starlette `allow_origins=['*']` hay `allow_origin_regex='.*'` kèm `allow_credentials=True`, `CORS_ALLOW_ALL_ORIGINS` kèm `CORS_ALLOW_CREDENTIALS`, `cors({ origin: true, credentials: true })` kể cả khi origin là regex khớp mọi thứ hay một callback luôn trả `true`, Spring `allowedOriginPatterns("*")` kèm `allowCredentials(true)`, ASP.NET `SetIsOriginAllowed(_ => true)` kèm `AllowCredentials()`, Go `AllowOriginFunc` luôn trả `true` kèm `AllowCredentials: true`, hoặc tự ghi `Access-Control-Allow-Origin` từ header `Origin` | `Access-Control-Allow-Origin: *` -- **trình duyệt tự bỏ** phản hồi khi request có credentials, nên `cors({ origin: '*', credentials: true })` không phải lỗ hổng này; tổ hợp mà thư viện **tự ném lỗi** ( Spring `allowedOrigins("*")`, ASP.NET `AllowAnyOrigin()`, flask-cors `send_wildcard=True`, cả ba khi đi kèm credentials ); danh sách origin đóng; mẫu có neo và có tên miền thật như `^https://.*\.example\.com$`; hàm quyết định origin có kiểm tra thật; chỗ ghi header nằm sau một phép so với allowlist |
+| `FSB-COOKIE-001` | cookie **mang phiên** ( tên chứa session, token, jwt, auth, sid, remember ) mà `HttpOnly` bị tắt thẳng, hoặc vắng mặt ở nơi mặc định của framework là tắt -- đã kiểm trực tiếp: Flask và Django `set_cookie`, express `res.cookie`, PHP `setcookie` và struct `http.Cookie` của Go đều không có HttpOnly khi không truyền gì | cookie `csrf` / `xsrf`, vì JavaScript của chính trang phải đọc được chúng; express-session, nơi mặc định đã BẬT HttpOnly nên chỉ bắt lúc bị tắt thẳng; cờ được đặt ở dòng sau ( `c.HttpOnly = true` ); biến cục bộ trùng tên như `$httponly = false;` mà dòng đó chưa cho biết sẽ đi đâu |
+
+### 🔑 Khi chính TÊN KHOÁ là thứ mang nghĩa
+
+Ba họ này khác mọi họ còn lại ở chỗ **tên khoá mới là thứ mang nghĩa**, không phải lời gọi.
+`request.args.get("role")` và `request.args.get("page")` là **cùng một lời gọi**, chỉ khác một
+chuỗi, mà một bên là leo thang quyền còn bên kia là phân trang. Nên rule đọc khoá, rồi đọc tiếp
+xem giá trị đó **quyết định** hay chỉ **lọc**:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-ACCESS-001` | khoá nói về quyền ( `role`, `is_admin`, `permissions`, `user_type`, kể cả header `X-Admin` sau khi chuẩn hoá ) được đọc từ nơi **người gửi tự đặt được** -- query, form, body, cookie, header -- rồi **so với một giá trị quyền** ( `== "admin"` ) trong một điều kiện hay một `return`, hoặc dùng thẳng làm điều kiện khi khoá là cờ đúng/sai. 12 ngôn ngữ: Python trên AST, còn JS/TS, PHP, Ruby, Java, Go, C#, Kotlin… trên token, gồm cả hậu tố `if` của Ruby và `r.URL.Query().Get(...)` của Go | cùng khoá đó nhưng chỉ dùng để **lọc danh sách** hay ghi log; đọc từ **phiên đã ký** của server ( `request.session['role']` ); so với giá trị không phải quyền ( `== "guest"` ); `if request.args.get('role')` khi `role` không phải cờ đúng/sai -- câu đó chỉ hỏi "người gửi có truyền role hay không"; và hậu tố `if` của Ruby che một **phép gán** ( `translated_params[:role_ids] = ... if params[:permissions] == 'staff'` của mastodon là bộ lọc truy vấn trong admin API, không phải phép cấp quyền ) |
+| `FSB-MASS-001` | **cả gói dữ liệu** của người gửi đi thẳng vào một đối tượng được lưu, với request nhìn thấy được ngay tại chỗ ghi: `User.objects.create(**request.POST)`, `User(**request.data)`, `User.create(req.body)`, `Object.assign(user, req.body)`, `findByIdAndUpdate(id, req.body)`, `User::create($request->all())`, `params.permit!`, hoặc `permit(...)` có chính trường quyền trong danh sách | ghi **trường đã nêu tên** ( `create({ name: req.body.name })`, `create(email=request.POST['email'])` ); `**request.GET` vào `filter()` -- đó là lớp lỗi khác chứ không phải mass assignment; `**request.headers`; và **cấu hình thuần** không có request ở cạnh ( `$guarded = []` của Laravel, `fields = "__all__"` của Django ) -- hai kiểm tra đó đã bị **bỏ** sau khi chúng báo nhầm vào chính mã của framework |
+| `FSB-PROTO-001` | một hàm **gộp** ( tên chứa merge / extend / deep / copy, hoặc hàm gọi lại chính nó ) duyệt khoá của đối tượng nguồn rồi ghi `target[key] = ...`, **và** thấy dữ liệu người gửi đi vào hàm đó trong cùng tệp ( `merge(config, req.body)`, `JSON.parse(...)`, hay vòng lặp duyệt thẳng `req.body` ). Trên JS và TS. `obj['__proto__']` không tạo khoá tên `__proto__` mà đi thẳng vào nguyên mẫu, nên một thuộc tính bơm vào đó hiện ra ở **mọi** đối tượng của tiến trình | hàm gộp **không có** nguồn nào từ ngoài vào -- bản đầu của rule bỏ qua điều kiện này và báo đúng 9 chỗ trên 28 repo thật, cả 9 đều là hàm gộp nội bộ của thư viện đi kèm ( moment, globalize, cldrjs, ace ); hàm có bất kỳ phép loại khoá nào ( `hasOwnProperty`, so với `'__proto__'` / `'constructor'`, `Object.create(null)`, `Map` ); vòng lặp trong một hàm **không phải** hàm gộp; `for (const item of items)` trên mảng, vì ở đó `item` là giá trị chứ không phải khoá |
+
+### 🧱 Hằng số quyết định: zip slip, quyền tệp, tệp tạm, chế độ gỡ lỗi
+
+Bốn họ này quyết định dựa trên **một hằng số** -- `0o777`, `/tmp/x`, `debug=True`, hay sự **vắng
+mặt** của `filter=`. Vì vậy chúng dễ dò đúng, và cũng rất dễ dò bừa. Ba lằn ranh dưới đây vạch
+theo hành vi thật của thư viện chuẩn, không vạch cho tiện:
+
+| Rule | Chỉ bắn khi | Im lặng với |
+| :--- | :--- | :--- |
+| `FSB-PATH-002` | `tarfile.extractall()` của Python không có `filter=` cũng không có `members=` ( CVE-2007-4559 ); `shutil.unpack_archive` ở độ tin cậy **thấp** vì định dạng thật chưa biết; Java `new File(dir, entry.getName())` và Go `filepath.Join(dest, hdr.Name)` khi hàm bao quanh có dấu hiệu tệp nén mà **không có phép kiểm đường dẫn nào** | `zipfile.extractall` -- `ZipFile._extract_member` tự bỏ dấu phân cách đầu và `..`, nên lối đó không phải lỗ hổng này; `filter='data'`; hàm có `getCanonicalPath().startsWith(...)` hay `strings.HasPrefix(...)`; `filepath.Join` không dính gì tới tệp nén. `filepath.Join` tự gọi `Clean`, nhưng Clean chạy **sau** khi nối nên một chữ `Clean` đứng một mình không được tính là đã canh |
+| `FSB-PERM-001` | họ `chmod` có bit ghi cho **mọi người dùng**: `os.chmod(p, 0o777)`, `Path(p).chmod(0o666)`, `os.Chmod(p, 0777)`, `chmod($file, 0777)`, `FileUtils.chmod(0777, path)`, `chmod -R 777`, `chmod a+w`, `setWritable(true, false)`, `PosixFilePermissions.fromString("rwxrwxrwx")`, `umask(0)` | chế độ truyền cho hàm **tạo** tệp hay thư mục ( `os.makedirs(p, 0o777)`, `os.MkdirAll(p, 0777)` ) -- chmod bỏ qua umask còn những hàm đó thì không, nên với umask 022 chúng ra 0755; `chmod 644`, `chmod 755`; `setWritable(true)` một tham số, vì nó chỉ cấp cho chủ sở hữu |
+| `FSB-TMP-001` | `tempfile.mktemp()` ( chính tài liệu thư viện chuẩn gọi nó là không an toàn ), và phép **ghi** vào một đường dẫn hằng dưới `/tmp`, `/var/tmp` hay `/dev/shm` trên Python, JS/TS, Java, Go, PHP, C# và shell ( kể cả `> /tmp/x` và `tee /tmp/x` ) | phép **đọc** cùng đường dẫn đó; `tempfile.mkstemp`, `NamedTemporaryFile`, `Files.createTempFile`, `os.CreateTemp`, `$(mktemp)` |
+| `FSB-DEBUG-001` | `app.run(debug=True)` **ngoài** `if __name__ == "__main__"`, `DebuggedApplication(evalex=True)`, `DEBUG = True` trong tệp tên chứa settings / config, `UseDeveloperExceptionPage()` không nằm sau phép kiểm môi trường, `ini_set('display_errors', 1)` | `app.run(debug=True)` trong `if __name__ == "__main__"` -- đó là lối chạy máy dev; tệp cấu hình tên chứa dev / local / sample; `if (env.IsDevelopment())`; `display_errors` đặt về 0 |
+
+### 📏 Thử trên mã thật
+
+Hai mươi mốt rule trên được chạy trên **28 dự án thật**, rồi sửa đến khi mã chạy thật của các dự án
+sạch không còn báo sai:
+
+| Dự án | Tệp | Phát hiện ở mã chạy thật | Ghi chú |
+| :--- | ---: | ---: | :--- |
+| flask · requests · express · axios · paramiko · gin · spring-petclinic · node-jsonwebtoken · jjwt · pyjwt · ruby-jwt · java-jwt · jackson-databind · Newtonsoft.Json | 4069 | **0** | phần nằm trong test vẫn được báo nhưng hạ một mức |
+| django | 2394 | 1 | `MD5PasswordHasher` đúng là băm mật khẩu bằng MD5, giữ lại cho tương thích ngược |
+| nopCommerce | 5110 | 1 | `TripleDES.Create()` khi tắt cài đặt dùng AES |
+| eShopOnWeb | 307 | 2 | khoá ký JWT và mật khẩu mặc định viết cứng trong `AuthorizationConstants.cs` |
+| gitea | 3534 | 3 | `SECRET_KEY` mặc định cũ viết cứng, MD5 dẫn xuất khoá mã hoá 2FA, và 1 TLS độ tin cậy **thấp** ( chỉ cho kết nối nội bộ ) |
+| mastodon | 4349 | 4 | mật khẩu admin cho máy dev trong `db/seeds`, 2 TLS độ tin cậy **thấp** ( chỉ khi người vận hành chọn `no-verify` ) |
+| sinatra | 178 | 1 | `verify_mode = VERIFY_NONE` trong `sinatra-contrib/lib/sinatra/runner.rb` |
+| httpx · laravel/framework · saleor · golang-jwt | 7383 | 5 | tất cả ở độ tin cậy **thấp**: mã hiện thực tuỳ chọn, hoặc đọc trước claims để định tuyến |
+| DVWA · WebGoat · juice-shop · NodeGoat | 1427 | 65 | ứng dụng **cố tình có lỗ hổng**: ECB, khoá JWT viết cứng, MD5 mật khẩu, `Math.random()` làm secret, `parse()` jjwt nhận token không ký, cookie `token` của juice-shop đọc được bằng JavaScript, bài học zip slip của WebGoat ( `ProfileZipSlip.java` ) và `ini_set('display_errors', 1)` của DVWA |
+
+Tổng cộng **28751 tệp**. Các báo nhầm tìm ra trong lúc thử ( hasher bọc PBKDF2 của saleor, URL CSDL
+`localhost` mặc định, khoá tài nguyên bản địa hoá, tệp bản dịch của elfinder, thư mục
+`Newtonsoft.Json.Tests`, biến cục bộ `$httponly` của DVWA, bộ xử lý CORS có allowlist của saleor,
+`permit(:page, *Admin::ActionLogFilter::KEYS)` và bộ lọc `?permissions=staff` trong admin API của
+mastodon, `current = os.umask(0)` của django -- lối ĐỌC umask rồi đặt lại, vì umask trả về giá
+trị cũ -- và 9 hàm gộp nội bộ của thư viện đi kèm mà bản đầu của `FSB-PROTO-001` báo nhầm ) đều
+đã được sửa và khoá lại bằng kiểm tra hồi quy.
+
+Hai rule mới nhất, `FSB-ACCESS-001` và `FSB-MASS-001`, báo **0** trên cả 28 dự án -- kể cả bốn ứng
+dụng cố tình có lỗ hổng. Đó là con số thật và nó nói đúng một điều: lỗ hổng mass assignment của
+juice-shop nằm trong endpoint REST do `finale-rest` sinh tự động, không có lời gọi `create(req.body)`
+nào trong mã nguồn để mà nhìn thấy; còn `req.body.role === security.roles.admin` ở
+`routes/verify.ts` là mã **dò challenge** của chính juice-shop, không phải phép cấp quyền, nên im
+lặng ở đó là đúng chứ không phải bỏ sót.
+
+> [!NOTE]
+> Có hai thứ **phân tích tĩnh không quyết định được**, và rule nói thẳng điều đó qua độ tin cậy
+> thay vì đoán: `FSB-CRYPTO-007` dựa vào **tên** của nơi nhận giá trị ngẫu nhiên nên chỉ ở mức
+> trung bình, còn `FSB-SECRET-001` không biết một chuỗi là secret thật hay mật khẩu demo nên cũng
+> chỉ ở mức trung bình, trừ khi giá trị khớp đúng định dạng token của một nhà cung cấp hoặc đủ dài
+> và đủ ngẫu nhiên ( từ 16 ký tự, entropy từ 3,5 bit mỗi ký tự ) để khó là chữ mẫu.
 
 ---
 

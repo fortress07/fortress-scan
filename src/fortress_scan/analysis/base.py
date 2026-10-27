@@ -7,8 +7,11 @@ from ..core.budget import Budget
 from ..core.config import Config
 from ..core.model import Confidence, Finding, Severity, StepKind, TraceStep
 from ..core.registry import get_rule
-from ..security.redaction import redact
+from ..security.redaction import PLACEHOLDER, redact
 from ..security.text import make_snippet, normalize_newlines, split_lines
+
+
+_MASK = "\x1f"
 
 
 @dataclass(frozen=True)
@@ -39,10 +42,28 @@ class FindingBuilder:
     def __init__(self, unit: AnalysisUnit) -> None:
         self._unit = unit
         self._findings: Dict[Tuple[str, int, int, str], Finding] = {}
+        # Vùng ( cột đầu, cột cuối ) trên từng dòng phải che trước khi đưa vào
+        # snippet: giá trị của một secret mà bộ phân tích đã biết chính xác vị
+        # trí. redact() chỉ đoán theo mẫu, nên không đủ cho
+        # `ADMIN_PASSWORD_LINK = "..."` hay một khoá truyền thẳng vào hàm.
+        self._masks: Dict[int, List[Tuple[int, int]]] = {}
+
+    def mask(self, line: int, start: int, end: int) -> None:
+        if end > start >= 0:
+            self._masks.setdefault(line, []).append((start, end))
 
     def snippet_for(self, line: int) -> str:
         if 1 <= line <= len(self._unit.lines):
-            return make_snippet(redact(self._unit.lines[line - 1]))
+            text = self._unit.lines[line - 1]
+            masks = self._masks.get(line)
+            if not masks:
+                return make_snippet(redact(text))
+            # Che bằng một ký tự canh trước, rồi mới redact(): chèn thẳng
+            # "[redacted]" thì mẫu `password = ...` của redact() lại ăn tiếp
+            # vào chính chuỗi che đó.
+            for start, end in sorted(masks, reverse=True):
+                text = text[:start] + _MASK + text[end:]
+            return make_snippet(redact(text).replace(_MASK, PLACEHOLDER))
         return ""
 
     def step(

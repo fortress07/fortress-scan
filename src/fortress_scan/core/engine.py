@@ -11,6 +11,7 @@ from ..analysis.manifest import ManifestAnalyzer
 from ..analysis.python.analyzer import PythonAnalyzer, UnparsableSource
 from ..analysis.python.project import MAX_INDEX_FUNCTIONS, ProjectIndex
 from ..analysis.unicode_scan import UnicodeAnalyzer
+from ..analysis.weakness import WeaknessAnalyzer
 from ..analysis.workflow import WorkflowAnalyzer
 from ..languages import MANIFEST, PYTHON, WORKFLOW
 from ..security import paths as safe_paths
@@ -29,6 +30,7 @@ _UNICODE_ANALYZER = UnicodeAnalyzer()
 _IR_ANALYZER = IRAnalyzer()
 _MANIFEST_ANALYZER = ManifestAnalyzer()
 _WORKFLOW_ANALYZER = WorkflowAnalyzer()
+_WEAKNESS_ANALYZER = WeaknessAnalyzer()
 
 _MAX_FINDINGS = 20_000
 
@@ -442,7 +444,17 @@ def _analyze_unit(
     except BudgetExceeded as exc:
         failure = ("budget-exceeded", str(exc))
 
-    if failure is None and (budget.exhausted or unicode_budget.exhausted or ir_budget.exhausted):
+    # Điểm yếu mật mã, TLS và secret có hạn mức riêng: một tệp làm cạn hạn mức
+    # của bộ truy vết taint không được kéo theo cả phần soi cấu hình.
+    weakness_budget = Budget(config.node_budget, config.file_timeout_seconds)
+    findings.extend(_WEAKNESS_ANALYZER.analyze(unit, weakness_budget))
+
+    if failure is None and (
+        budget.exhausted
+        or unicode_budget.exhausted
+        or ir_budget.exhausted
+        or weakness_budget.exhausted
+    ):
         failure = (
             "budget-exceeded",
             "tệp quá lớn hoặc quá phức tạp, phân tích chưa hoàn tất nên kết quả có thể thiếu",

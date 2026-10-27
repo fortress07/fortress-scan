@@ -53,6 +53,14 @@ _OWASP_MISCONFIGURATION = (
     "A02:2025-Security Misconfiguration",
     "A05:2021-Security Misconfiguration",
 )
+# Thuật toán yếu, khoá viết cứng, IV cố định, PRNG đoán được.
+_OWASP_CRYPTO = ("A04:2025-Cryptographic Failures", "A02:2021-Cryptographic Failures")
+# Xác minh chứng chỉ ( CWE-295 ) và thông tin đăng nhập viết cứng ( CWE-798 )
+# được cả hai bản xếp vào nhóm xác thực, không phải nhóm mật mã.
+_OWASP_AUTHENTICATION = (
+    "A07:2025-Authentication Failures",
+    "A07:2021-Identification and Authentication Failures",
+)
 
 _RULE_LIST: Tuple[RuleSpec, ...] = (
     RuleSpec(
@@ -338,6 +346,33 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
         remediation=(
             "Chuyển sang biến thể an toàn mà thư viện cung cấp: yaml.safe_load, json.loads, "
             "torch.load(..., weights_only=True), numpy.load(..., allow_pickle=False)."
+        ),
+    ),
+    RuleSpec(
+        id="FSB-DESER-003",
+        title="Bộ giải tuần tự được cấu hình để dữ liệu đầu vào tự chọn kiểu đối tượng",
+        category=Category.DESERIALIZATION,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-502",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Một thư viện JSON hay nhị phân vốn chỉ dựng đúng kiểu được khai báo đã bị bật chế độ "
+            "đa hình: Json.NET với TypeNameHandling khác None, Jackson với default typing hoặc "
+            "LaissezFaireSubTypeValidator, fastjson với autoType, XStream với AnyTypePermission, "
+            "Kryo không bắt đăng ký lớp, Oj ở mode :object. Khi đó chính payload quyết định lớp "
+            "nào được khởi tạo, và một chuỗi gadget có sẵn trên classpath là đủ để chạy mã. Phân "
+            "tích tĩnh không biết dữ liệu đưa vào đây có tới từ bên ngoài hay không, nên mức độ "
+            "giữ ở medium; cấu hình thì chắc chắn đã bật."
+        ),
+        remediation=(
+            "Tắt chế độ đa hình ( TypeNameHandling.None, bỏ enableDefaultTyping, tắt autoType ). "
+            "Nếu thật sự cần, giới hạn bằng danh sách cho phép: ISerializationBinder của Json.NET, "
+            "BasicPolymorphicTypeValidator của Jackson, allowTypes của XStream, register() của Kryo."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/502.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html",
         ),
     ),
     RuleSpec(
@@ -726,6 +761,494 @@ _RULE_LIST: Tuple[RuleSpec, ...] = (
         references=(
             "https://docs.github.com/en/actions/security-for-github-actions/security-guides/"
             "security-hardening-for-github-actions#using-third-party-actions",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-001",
+        title="Hàm băm đã bị phá ( MD5, SHA-1 ) dùng để dựng chữ ký hoặc MAC",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-328", "CWE-327"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "MD5 và SHA-1 đã có tấn công va chạm thực tế, và kiểu ghép `md5(bi_mat + du_lieu)` "
+            "còn bị tấn công nối dài ( length extension ): biết một chữ ký hợp lệ là tự làm ra "
+            "chữ ký cho dữ liệu dài hơn mà không cần biết bí mật. Rule chỉ bắn khi dữ liệu được "
+            "băm hoặc nơi nhận kết quả mang tên bí mật hay chữ ký; băm nội dung tệp để làm ETag "
+            "hay khoá cache thì không bị báo."
+        ),
+        remediation=(
+            "Dùng HMAC với SHA-256 ( hmac.new(key, msg, hashlib.sha256), crypto.createHmac"
+            "('sha256', key) ) và so sánh chữ ký bằng hàm so sánh hằng thời gian."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/328.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-002",
+        title="Mật khẩu được băm bằng hàm băm nhanh thay vì hàm dẫn xuất khoá chậm",
+        category=Category.CRYPTO,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-916", "CWE-759"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "MD5, SHA-1 và cả SHA-256 được thiết kế để chạy NHANH: một GPU thử hàng tỉ mật khẩu "
+            "mỗi giây. Lộ bảng người dùng là lộ gần hết mật khẩu, kể cả khi có muối. Rule bắn "
+            "khi đầu vào của hàm băm mang tên mật khẩu và không nằm bên trong một hàm dẫn xuất "
+            "khoá chậm."
+        ),
+        remediation=(
+            "Dùng argon2id, scrypt hoặc bcrypt qua thư viện chuẩn của nền tảng: "
+            "argon2-cffi / passlib, password_hash() của PHP, BCryptPasswordEncoder của Spring, "
+            "golang.org/x/crypto/bcrypt."
+        ),
+        references=(
+            "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-003",
+        title="Thuật toán mã hoá đã bị phá ( DES, 3DES, RC4, RC2, Blowfish )",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-327",),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "DES có khoá 56 bit, vét cạn được trong vài giờ. 3DES và Blowfish có khối 64 bit nên "
+            "dính tấn công Sweet32 khi mã hoá nhiều dữ liệu với cùng khoá. RC4 có độ lệch thống "
+            "kê đủ để khôi phục bản rõ lặp lại ( cookie, token )."
+        ),
+        remediation="Dùng AES-GCM hoặc ChaCha20-Poly1305 qua một API mã hoá có xác thực.",
+        references=("https://cwe.mitre.org/data/definitions/327.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-004",
+        title="Mã hoá khối ở chế độ ECB",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-327",),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "ECB mã hoá từng khối độc lập: hai khối bản rõ giống nhau cho ra hai khối bản mã "
+            "giống nhau, nên cấu trúc dữ liệu lộ ra nguyên vẹn, và kẻ tấn công cắt ghép khối được "
+            "mà không bị phát hiện. Với Java, `Cipher.getInstance(\"AES\")` không ghi chế độ "
+            "cũng chính là AES/ECB."
+        ),
+        remediation=(
+            "Dùng chế độ có xác thực: AES/GCM/NoPadding với nonce ngẫu nhiên 12 byte, hoặc "
+            "AESGCM / ChaCha20Poly1305 của thư viện cryptography."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/327.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-005",
+        title="IV, nonce hoặc muối là hằng số viết cứng",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-329", "CWE-1204", "CWE-760"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "IV cố định với CBC làm hai bản rõ có cùng phần đầu cho ra cùng phần đầu bản mã. "
+            "Nonce cố định với GCM, CTR hay ChaCha20 nghiêm trọng hơn nhiều: cùng khoá và cùng "
+            "nonce là cùng dòng khoá, XOR hai bản mã ra XOR hai bản rõ, và với GCM còn khôi phục "
+            "được khoá xác thực để giả mạo bản mã. Muối cố định biến mọi mật khẩu thành một bảng "
+            "tra chung."
+        ),
+        remediation=(
+            "Sinh IV / nonce / muối mới bằng CSPRNG cho từng lần mã hoá ( os.urandom, "
+            "crypto.randomBytes, SecureRandom, crypto/rand ) và lưu kèm bản mã."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/329.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-006",
+        title="Khoá mật mã viết cứng trong mã nguồn",
+        category=Category.CRYPTO,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-321", "CWE-798"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "Một hằng chuỗi được đưa thẳng làm khoá cho bộ mã hoá, HMAC hay chữ ký JWT. Ai đọc "
+            "được mã nguồn, bản build hay lịch sử git đều giải mã được dữ liệu và ký được token "
+            "hợp lệ; muốn xoay khoá thì phải phát hành lại phần mềm."
+        ),
+        remediation=(
+            "Nạp khoá từ trình quản lý bí mật hoặc biến môi trường lúc chạy, và xoay ngay khoá "
+            "đã nằm trong lịch sử git vì xoá commit không thu hồi được nó."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/321.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-007",
+        title="Bộ sinh số ngẫu nhiên đoán được dùng cho giá trị bảo mật",
+        category=Category.CRYPTO,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-338", "CWE-330"),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "random của Python, Math.random của JavaScript, java.util.Random, math/rand của Go, "
+            "rand()/mt_rand() của PHP đều là PRNG thống kê: quan sát vài đầu ra là dựng lại được "
+            "trạng thái và đoán trước mọi token kế tiếp. Dùng chúng cho token đặt lại mật khẩu, "
+            "OTP hay session id là cho phép chiếm tài khoản. Rule chỉ bắn khi giá trị đi vào một "
+            "tên mang nghĩa bảo mật; độ tin cậy vì thế là medium."
+        ),
+        remediation=(
+            "Dùng CSPRNG: secrets.token_urlsafe(), crypto.randomBytes() / crypto.randomUUID(), "
+            "SecureRandom, crypto/rand, random_bytes() / random_int()."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/338.html",),
+    ),
+    RuleSpec(
+        id="FSB-CRYPTO-008",
+        title="Khoá RSA hoặc DSA ngắn hơn 2048 bit",
+        category=Category.CRYPTO,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-326",),
+        owasp=_OWASP_CRYPTO,
+        description=(
+            "RSA 512 bit phân tích được trên máy thuê vài giờ; 1024 bit nằm trong tầm của tổ chức "
+            "có tài nguyên và đã bị NIST loại từ 2013. Khoá sinh ra hôm nay thường sống nhiều năm."
+        ),
+        remediation="Dùng RSA tối thiểu 2048 bit ( 3072 nếu khoá sống lâu ), hoặc Ed25519 / P-256.",
+        references=("https://cwe.mitre.org/data/definitions/326.html",),
+    ),
+    RuleSpec(
+        id="FSB-TLS-001",
+        title="Tắt xác minh chứng chỉ TLS hoặc khoá máy chủ",
+        category=Category.TLS,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-295", "CWE-297"),
+        owasp=_OWASP_AUTHENTICATION,
+        description=(
+            "Kết nối vẫn được mã hoá nhưng không còn biết đang nói chuyện với ai: bất kỳ ai đứng "
+            "giữa đường ( Wi-Fi công cộng, proxy, DNS bị đầu độc ) đưa ra một chứng chỉ tự ký là "
+            "đọc và sửa được toàn bộ lưu lượng, kể cả mật khẩu và token đi trong đó."
+        ),
+        remediation=(
+            "Bỏ cờ tắt xác minh. Với CA nội bộ, trỏ tới đúng tệp CA ( verify='/duong/dan/ca.pem', "
+            "ca:, RootCAs ) thay vì tắt hẳn; với SSH, nạp known_hosts và dùng RejectPolicy."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/295.html",),
+    ),
+    RuleSpec(
+        id="FSB-SECRET-001",
+        title="Mật khẩu, token hoặc khoá API viết cứng trong mã nguồn",
+        category=Category.SECRET,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-798", "CWE-259"),
+        owasp=_OWASP_AUTHENTICATION,
+        description=(
+            "Một giá trị trông như bí mật thật được gán cho tên mang nghĩa mật khẩu, token hay "
+            "khoá, hoặc khớp định dạng token của nhà cung cấp ( AWS, GitHub, Slack, Stripe, khoá "
+            "riêng PEM ). Giá trị mẫu, chuỗi rỗng, tên biến môi trường và chuỗi có khoảng trắng "
+            "bị loại; độ tin cậy lên high khi định dạng hoặc độ ngẫu nhiên của chuỗi xác nhận nó. "
+            "Báo cáo luôn che giá trị."
+        ),
+        remediation=(
+            "Thu hồi và xoay bí mật ngay, vì nó đã nằm trong lịch sử git. Sau đó nạp từ biến môi "
+            "trường hoặc trình quản lý bí mật, và thêm bước quét secret vào CI."
+        ),
+        references=("https://cwe.mitre.org/data/definitions/798.html",),
+    ),
+    RuleSpec(
+        id="FSB-JWT-001",
+        title="JWT được chấp nhận mà không xác minh chữ ký",
+        category=Category.JWT,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-347", "CWE-345"),
+        owasp=_OWASP_AUTHENTICATION,
+        description=(
+            "Token được giải mã với xác minh chữ ký bị tắt ( verify_signature: False, "
+            "JWT.decode(t, k, false), ParseUnverified ), hoặc bộ kiểm tra chấp nhận token không ký "
+            "( thuật toán 'none', parseClaimsJwt, RequireSignedTokens = false ). Ai cũng sửa được "
+            "phần claims rồi tự ký lại bằng 'none', nên mọi quyết định dựa trên sub, role hay "
+            "user_id trong token đều bị qua mặt. Lời gọi chỉ đọc iss hay kid trước khi xác minh "
+            "thật trong cùng hàm không bị báo; khi không thấy chỗ xác minh nào khác thì độ tin cậy "
+            "chỉ ở medium, vì chữ ký có thể đã được kiểm ở một tầng khác như gateway."
+        ),
+        remediation=(
+            "Luôn xác minh bằng khoá và danh sách thuật toán cố định: jwt.decode(t, key, "
+            "algorithms=['RS256']), jwt.Parse với keyfunc kiểm tra token.Method, parseSignedClaims "
+            "của jjwt, TokenValidationParameters giữ RequireSignedTokens = true. Không bao giờ để "
+            "'none' trong danh sách thuật toán."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/347.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-CORS-001",
+        title="CORS phản chiếu mọi origin kèm theo thông tin đăng nhập",
+        category=Category.CORS,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-942", "CWE-346"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Phản hồi vừa dội lại Origin của người gửi vào Access-Control-Allow-Origin, vừa đặt "
+            "Access-Control-Allow-Credentials: true. Hai thứ đó đi cùng nhau có nghĩa là trang web "
+            "nào cũng gọi được API này bằng cookie của nạn nhân VÀ đọc được nội dung trả về, nên dữ "
+            "liệu sau đăng nhập ( thông tin cá nhân, token CSRF, kết quả truy vấn ) chảy sang tên "
+            "miền của kẻ tấn công. Cấu hình để Access-Control-Allow-Origin là đúng ký tự '*' KHÔNG "
+            "bị báo: trình duyệt từ chối '*' khi request có credentials, nên đó không phải lỗ hổng "
+            "này. Khai thác cần cookie đi kèm được request khác site, tức là cookie đặt "
+            "SameSite=None -- đúng trường hợp của phần lớn API bật CORS kèm credentials -- hoặc "
+            "HTTP Basic / client cert."
+        ),
+        remediation=(
+            "Liệt kê thẳng những origin được phép thay vì dội lại Origin hoặc dùng mẫu '*': "
+            "CORS(app, origins=['https://app.example'], supports_credentials=True), "
+            "cors({ origin: ['https://app.example'], credentials: true }), "
+            "allowedOrigins('https://app.example') của Spring, WithOrigins(...) của ASP.NET. Khi "
+            "danh sách phải động thì so khớp Origin với một allowlist đóng rồi mới ghi header, và "
+            "luôn thêm Vary: Origin để cache không trộn phản hồi của hai origin."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/942.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-COOKIE-001",
+        title="Cookie phiên hoặc token được đặt mà không có cờ HttpOnly",
+        category=Category.COOKIE,
+        severity=Severity.LOW,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-1004",),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Cookie mang phiên đăng nhập hoặc token được ghi mà không có HttpOnly, hoặc có nhưng bị "
+            "tắt thẳng ( httponly=False, httpOnly: false, setHttpOnly(false) ). Mặc định của "
+            "Flask, Django response.set_cookie và express res.cookie đều là KHÔNG có HttpOnly, nên "
+            "chỉ cần thiếu tham số là cookie đọc được bằng document.cookie. Đây là lớp phòng thủ "
+            "thứ hai: một mình nó không cho ai vào, nhưng khi có XSS thì nó quyết định kẻ tấn công "
+            "chỉ hành động trong phiên của nạn nhân hay mang hẳn cookie phiên đi dùng chỗ khác. "
+            "Cookie tên csrf hay xsrf không bị báo vì JavaScript của chính trang phải đọc được "
+            "chúng để gắn vào request."
+        ),
+        remediation=(
+            "Đặt HttpOnly cho mọi cookie mà JavaScript của trang không cần đọc: "
+            "response.set_cookie(name, value, httponly=True, secure=True, samesite='Lax'), "
+            "res.cookie(name, value, { httpOnly: true, secure: true, sameSite: 'lax' }), "
+            "cookie.setHttpOnly(true). Với Flask và Django, giữ SESSION_COOKIE_HTTPONLY = True; "
+            "với PHP, session.cookie_httponly = 1."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/1004.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-ACCESS-001",
+        title="Quyền được quyết định bằng giá trị người gửi tự đặt được",
+        category=Category.ACCESS_CONTROL,
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-807", "CWE-285"),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Một trường của request -- tham số truy vấn, trường form, cookie hay header -- mang "
+            "tên quyền ( role, is_admin, superuser ) và được đem ra so để quyết định cho phép hay "
+            "không. Người gửi tự đặt được cả ba thứ đó bằng một dòng curl, nên ai cũng tự cấp "
+            "được quyền quản trị: thêm `?role=admin` hoặc một cookie `is_admin=1` là xong. Quyền "
+            "phải tra từ phía máy chủ theo danh tính đã xác thực ( phiên đã ký, token đã xác "
+            "minh, bản ghi trong CSDL ), không phải đọc lại từ chính request. Lời gọi chỉ LỌC "
+            "theo role ( `where('role', req.query.role)` ) không bị báo, vì đó không phải quyết "
+            "định cấp quyền."
+        ),
+        remediation=(
+            "Tra quyền từ phía máy chủ bằng danh tính đã xác thực: `current_user.is_admin` lấy từ "
+            "CSDL, claim trong token đã xác minh chữ ký, hay giá trị trong phiên đã ký của server. "
+            "Khi phải nhận quyền qua header từ gateway, hãy chắc gateway XOÁ header đó trên mọi "
+            "request từ ngoài vào, và nói rõ điều đó ở nơi đọc header."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/807.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-MASS-001",
+        title="Cả body của request được ghi thẳng vào đối tượng được lưu",
+        category=Category.MASS_ASSIGNMENT,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-915",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Toàn bộ dữ liệu người gửi đưa lên được gán vào một đối tượng rồi lưu, không qua danh "
+            "sách trường được phép: `User.objects.create(**request.POST)`, `User.create(req.body)`, "
+            "`User.findByIdAndUpdate(id, req.body)`, `User::create($request->all())` hay "
+            "`params.require(:user).permit!` của Rails. Người gửi chỉ cần thêm một khoá mà biểu mẫu "
+            "không có -- `is_admin`, `role`, `balance`, `email_verified` -- là ghi đè được cột đó. "
+            "Mức độ thiệt hại phụ thuộc vào model: trên bảng người dùng thì đây là đường lên "
+            "quyền quản trị, trên một bảng không có cột nhạy cảm thì không."
+        ),
+        remediation=(
+            "Liệt kê thẳng những trường được phép ghi: `params.require(:user).permit(:name, "
+            ":email)`, `$fillable = ['name', 'email']`, `fields = ['name', 'email']` trong Meta "
+            "của form, hoặc chép từng trường sang model. Rule chỉ báo chỗ THẤY request ngay tại "
+            "phép ghi; một dòng cấu hình đứng riêng ( `$guarded = []`, `fields = '__all__'` ) thì "
+            "không, vì nó nằm hợp lệ trong chính mã của framework. Các cột quyết định "
+            "quyền và số dư phải nằm ngoài danh sách đó và chỉ đổi được qua một đường riêng có "
+            "kiểm quyền."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/915.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-PATH-002",
+        title="Giải nén tệp nén mà không chuẩn hoá tên thành viên ( zip slip )",
+        category=Category.PATH,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-22",),
+        owasp=_OWASP_ACCESS,
+        description=(
+            "Tên thành viên trong một tệp nén là dữ liệu của người đưa tệp lên, và nó được "
+            "phép chứa `../`. Khi tên đó được nối vào thư mục đích mà không ai kiểm lại, nội "
+            "dung ghi ra ngoài thư mục ấy: `../../etc/cron.d/x`, `../../.ssh/authorized_keys`, "
+            "hay một tệp `.jar` của chính ứng dụng. `tarfile.extractall()` của Python không "
+            "chuẩn hoá tên ( CVE-2007-4559 ), `new File(dir, entry.getName())` của Java và "
+            "`filepath.Join(dest, hdr.Name)` của Go cũng không. `zipfile` của Python thì có, "
+            "nên lối đó không bị báo."
+        ),
+        remediation=(
+            "Python: truyền `filter='data'` cho `extractall` ( PEP 706 ), có từ 3.12 và được "
+            "backport về 3.9.17. Java và Go: tính đường dẫn đích rồi so tiền tố -- "
+            "`target.getCanonicalPath().startsWith(dir.getCanonicalPath() + File.separator)`, "
+            "`strings.HasPrefix(filepath.Clean(target), filepath.Clean(dest)+string(os.PathSeparator))` "
+            "-- và bỏ qua thành viên nào không khớp. Kiểm cả liên kết tượng trưng trong tệp nén."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/22.html",
+            "https://peps.python.org/pep-0706/",
+            "https://security.snyk.io/research/zip-slip-vulnerability",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-PERM-001",
+        title="Quyền tệp mở cho mọi người dùng trên máy ghi",
+        category=Category.PERMISSION,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        cwe=("CWE-732", "CWE-276"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "`chmod 0777`, `chmod a+w`, `setWritable(true, false)` hay `umask(0)` cho bất kỳ "
+            "ai có một tiến trình trên máy quyền ghi vào tệp. Nếu tệp đó là mã sẽ được chạy, "
+            "một tệp cấu hình sẽ được đọc, hay một tệp log mà dịch vụ khác tin, thì đây là "
+            "đường leo thang quyền cục bộ -- không cần qua mạng. Rule chỉ nhìn họ `chmod`, "
+            "vì chmod bỏ qua umask nên con số viết trong mã là quyền thật; chế độ truyền cho "
+            "`open` hay `mkdir` thì còn bị umask che nên không bị báo."
+        ),
+        remediation=(
+            "Cho quyền hẹp nhất còn chạy được: 0600 cho tệp dữ liệu của một tiến trình, 0640 "
+            "khi một nhóm cần đọc, 0755 cho tệp chạy được. Cần nhiều tiến trình dùng chung "
+            "thì đặt nhóm chung rồi cấp quyền cho nhóm, đừng cấp cho cả máy."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/732.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-TMP-001",
+        title="Tệp tạm mang tên đoán trước được",
+        category=Category.TEMP_FILE,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-377", "CWE-379"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "`/tmp` là thư mục ai cũng ghi được. Một tên tệp cố định ở đó, hay một tên do "  # NOSONAR
+            "`tempfile.mktemp()` sinh ra rồi mới mở, để lại một khoảng giữa lúc chọn tên và "
+            "lúc tạo tệp: ai cũng chen được vào đúng tên ấy một liên kết tượng trưng trỏ tới "
+            "`~/.bashrc` hay `/etc/passwd`, và tiến trình nạn nhân ghi hộ. Đổi được nội dung "
+            "tệp người khác, hoặc đọc được nội dung đáng ra là riêng."
+        ),
+        remediation=(
+            "Dùng hàm tạo tệp tạm nguyên tử: `tempfile.NamedTemporaryFile` hay "
+            "`tempfile.mkstemp` ( Python ), `Files.createTempFile` ( Java ), `os.CreateTemp` "
+            "( Go ), `mkstemp` ( C ). Chúng tạo tệp với tên ngẫu nhiên và quyền chỉ chủ sở "
+            "hữu trong cùng một bước, nên không còn khoảng trống nào để chen vào."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/377.html",
+            "https://docs.python.org/3/library/tempfile.html#tempfile.mktemp",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-DEBUG-001",
+        title="Chế độ gỡ lỗi bật trong mã đi kèm ứng dụng",
+        category=Category.DEBUG,
+        severity=Severity.HIGH,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-489", "CWE-215"),
+        owasp=_OWASP_MISCONFIGURATION,
+        description=(
+            "Bộ gỡ lỗi của Werkzeug ( `app.run(debug=True)`, `DebuggedApplication(evalex=True)` ) "
+            "mở một shell Python ngay trên trang lỗi, nên nó là lối chạy mã tuỳ ý. `DEBUG = True` "
+            "của Django in cấu hình, biến môi trường và truy vết của mọi request lỗi; "
+            "`UseDeveloperExceptionPage()` của ASP.NET và `display_errors` của PHP cũng lộ "
+            "đường dẫn, câu truy vấn và chuỗi kết nối. Rule im lặng ở nơi đây đúng là chủ ý: "
+            "`app.run(debug=True)` trong `if __name__ == \"__main__\"`, tệp cấu hình có tên "
+            "chứa dev / local, và `UseDeveloperExceptionPage` nằm sau `env.IsDevelopment()`."
+        ),
+        remediation=(
+            "Lấy giá trị từ biến môi trường với mặc định là TẮT, rồi bật riêng ở máy dev: "
+            "`DEBUG = os.environ.get('DEBUG') == '1'`. ASP.NET: để "
+            "`UseDeveloperExceptionPage` trong nhánh `if (env.IsDevelopment())`. PHP: "
+            "`display_errors = Off` kèm `log_errors = On` ở nơi triển khai."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/489.html",
+            "https://werkzeug.palletsprojects.com/en/stable/debug/",
+        ),
+    ),
+    RuleSpec(
+        id="FSB-PROTO-001",
+        title="Hàm gộp đối tượng ghi theo khoá của nguồn mà không loại __proto__",
+        category=Category.PROTOTYPE,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.MEDIUM,
+        cwe=("CWE-1321",),
+        owasp=_OWASP_INTEGRITY,
+        description=(
+            "Một hàm gộp duyệt khoá của đối tượng nguồn rồi ghi `target[key] = ...`. Trong "
+            "JavaScript, `obj['__proto__']` KHÔNG tạo một khoá tên `__proto__` mà đi thẳng "
+            "vào nguyên mẫu của đối tượng, nên một nguồn chứa "
+            "`{\"__proto__\": {\"isAdmin\": true}}` ghi được một thuộc tính mà MỌI đối tượng "
+            "trong tiến trình đọc thấy. Hậu quả tuỳ chuỗi khai thác phía sau: vượt qua một "
+            "phép kiểm đọc thuộc tính mặc định, hay bơm một tham số vào thư viện khác. Chỉ "
+            "hình dạng vòng lặp thì CHƯA đủ: rule đòi thấy dữ liệu người gửi đi vào hàm gộp "
+            "đó trong cùng tệp -- `merge(config, req.body)`, `JSON.parse(...)`, hoặc vòng "
+            "lặp duyệt thẳng `req.body`. Không có điều kiện ấy thì mọi hàm gộp của mọi thư "
+            "viện JavaScript đều bị báo, mà hầu hết chúng chỉ gộp cấu hình của chính mình."
+        ),
+        remediation=(
+            "Bỏ qua ba khoá nguy hiểm ngay trong vòng lặp: `if (key === '__proto__' || key === "
+            "'constructor' || key === 'prototype') continue;`. Chỉ nhận khoá của chính đối "
+            "tượng ( `Object.prototype.hasOwnProperty.call(source, key)` ), hoặc dựng đối "
+            "tượng bằng `Object.create(null)` và `Map` để không có nguyên mẫu nào mà bơm. Với "
+            "dữ liệu JSON từ ngoài, dùng một lược đồ liệt kê trường được phép."
+        ),
+        references=(
+            "https://cwe.mitre.org/data/definitions/1321.html",
+            "https://portswigger.net/web-security/prototype-pollution",
         ),
     ),
     # --- Truy vết xâm nhập ------------------------------------------------
