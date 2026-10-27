@@ -13,11 +13,12 @@ from ..analysis.python.project import MAX_INDEX_FUNCTIONS, ProjectIndex
 from ..analysis.unicode_scan import UnicodeAnalyzer
 from ..analysis.weakness import WeaknessAnalyzer
 from ..analysis.workflow import WorkflowAnalyzer
+from ..analysis.native.memory import NativeMemoryAnalyzer
 from ..analysis.xfile import builder as xfile_builder
 from ..analysis.xfile.artifacts import TEMPLATE_SUFFIXES
 from ..analysis.xfile.project import SUPPORTED as XFILE_LANGUAGES
 from ..analysis.xfile.project import XProject
-from ..languages import MANIFEST, PYTHON, WORKFLOW
+from ..languages import C, CPP, MANIFEST, OBJC, PYTHON, WORKFLOW
 from ..security import paths as safe_paths
 from . import baseline as baseline_module
 from . import calibration as calibration_module
@@ -35,6 +36,16 @@ _IR_ANALYZER = IRAnalyzer()
 _MANIFEST_ANALYZER = ManifestAnalyzer()
 _WORKFLOW_ANALYZER = WorkflowAnalyzer()
 _WEAKNESS_ANALYZER = WeaknessAnalyzer()
+_NATIVE_MEMORY_ANALYZER = NativeMemoryAnalyzer()
+
+# Bộ phân tích chạy THÊM sau bộ chính của ngôn ngữ, mỗi bộ một hạn mức riêng.
+# Mã native vừa có injection ( system(), SQL ) do bộ token chung lo, vừa có
+# lỗi bộ nhớ là thứ chỉ bộ đọc cấu trúc C mới thấy.
+_EXTRA_ANALYZERS = {
+    C: (_NATIVE_MEMORY_ANALYZER,),
+    CPP: (_NATIVE_MEMORY_ANALYZER,),
+    OBJC: (_NATIVE_MEMORY_ANALYZER,),
+}
 
 _MAX_FINDINGS = 20_000
 
@@ -580,11 +591,26 @@ def _analyze_unit(
     weakness_budget = Budget(config.node_budget, config.file_timeout_seconds)
     findings.extend(_WEAKNESS_ANALYZER.analyze(unit, weakness_budget))
 
+    extra_exhausted = False
+    for extra in _EXTRA_ANALYZERS.get(unit.language, ()):
+        # Bộ đọc cấu trúc C đi qua mỗi token vài lần ( thu thập hằng, tách hàm,
+        # dựng cây, rồi các lượt luật ), nên hạn mức tính theo kích thước tệp:
+        # vẫn tuyến tính, vẫn chặn được tệp cố tình phình to.
+        extra_budget = Budget(
+            max(config.token_budget, 4 * len(unit.source)), config.file_timeout_seconds
+        )
+        try:
+            findings.extend(extra.analyze(unit, extra_budget))
+        except BudgetExceeded:
+            extra_exhausted = True
+        extra_exhausted = extra_exhausted or extra_budget.exhausted
+
     if failure is None and (
         budget.exhausted
         or unicode_budget.exhausted
         or ir_budget.exhausted
         or weakness_budget.exhausted
+        or extra_exhausted
     ):
         failure = (
             "budget-exceeded",

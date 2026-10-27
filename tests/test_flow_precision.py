@@ -161,7 +161,9 @@ def test_prepared_statement_built_from_tainted_sql(tmp_path: Path):
         encoding="utf-8",
     )
     findings = scan(str(tmp_path), Config()).findings
-    assert [(f.rule_id, f.line) for f in findings] == [("FSB-SQL-001", 8)]
+    # Báo đúng một lần, tại chỗ câu SQL bẩn được biên dịch ( prepareStatement ),
+    # không báo lại ở `st.execute()`.
+    assert [(f.rule_id, f.line) for f in findings] == [("FSB-SQL-001", 7)]
 
 
 def test_foreach_over_tainted_collection(tmp_path: Path):
@@ -235,4 +237,70 @@ def test_helper_class_named_by_full_package_and_jdbc_call_escape(tmp_path: Path)
             "}\n"
         ),
     }
-    assert _java_findings(tmp_path, files) == [("app/web/S.java", 8, "FSB-SQL-001")]
+    assert _java_findings(tmp_path, files) == [("app/web/S.java", 7, "FSB-SQL-001")]
+
+
+def test_object_stream_reported_once_where_the_body_enters(tmp_path: Path):
+    # `new ObjectInputStream(body)` đã là sink; `in.readObject()` ngay sau đó
+    # là cùng một lỗ hổng, không phải lỗ hổng thứ hai.
+    (tmp_path / "T.java").write_text(
+        "import javax.servlet.http.*;\n"
+        "import java.io.*;\n"
+        "public class T extends HttpServlet {\n"
+        "    public void doPost(HttpServletRequest request) throws Exception {\n"
+        "        ObjectInputStream in = new ObjectInputStream(request.getInputStream());\n"
+        "        Object value = in.readObject();\n"
+        "    }\n}\n",
+        encoding="utf-8",
+    )
+    findings = scan(str(tmp_path), Config()).findings
+    assert [(f.rule_id, f.line) for f in findings] == [("FSB-DESER-001", 5)]
+
+
+def test_command_output_and_file_contents_are_not_request_data(tmp_path: Path):
+    # Giá trị trả về của sink lệnh hay sink tệp là đầu ra của lệnh, nội dung của
+    # tệp; ghi nó ra phản hồi không phải XSS. Chính lời gọi sink vẫn bị báo, và
+    # dữ liệu request ghi thẳng ra phản hồi thì vẫn là XSS.
+    (tmp_path / "h.go").write_text(
+        "package main\n"
+        "\n"
+        "import (\n"
+        "\t\"net/http\"\n"
+        "\t\"os\"\n"
+        "\t\"os/exec\"\n"
+        ")\n"
+        "\n"
+        "func ping(w http.ResponseWriter, r *http.Request) {\n"
+        "\tout, _ := exec.Command(\"ping\", \"-c\", \"1\", r.FormValue(\"host\")).Output()\n"
+        "\tw.Write(out)\n"
+        "}\n"
+        "\n"
+        "func file(w http.ResponseWriter, r *http.Request) {\n"
+        "\tdata, _ := os.ReadFile(r.URL.Query().Get(\"file\"))\n"
+        "\tw.Write(data)\n"
+        "}\n"
+        "\n"
+        "func echo(w http.ResponseWriter, r *http.Request) {\n"
+        "\tw.Write([]byte(r.FormValue(\"m\")))\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    findings = scan(str(tmp_path), Config()).findings
+    assert [(f.rule_id, f.line) for f in findings] == [("FSB-PATH-001", 15), ("FSB-XSS-001", 20)]
+
+
+def test_path_built_from_a_tainted_directory_still_reaches_the_reader(tmp_path: Path):
+    # `new File(thu_muc, ten)` chỉ xét tên; thư mục bẩn vẫn phải tới được bộ đọc tệp,
+    # vì giá trị trả về của nó là chính đường dẫn chứ không phải nội dung tệp.
+    (tmp_path / "T.java").write_text(
+        "import javax.servlet.http.*;\n"
+        "import java.io.*;\n"
+        "public class T extends HttpServlet {\n"
+        "    public void doGet(HttpServletRequest request) throws Exception {\n"
+        "        File target = new File(request.getParameter(\"dir\"), \"report.txt\");\n"
+        "        FileInputStream in = new FileInputStream(target);\n"
+        "    }\n}\n",
+        encoding="utf-8",
+    )
+    findings = scan(str(tmp_path), Config()).findings
+    assert [(f.rule_id, f.line) for f in findings] == [("FSB-PATH-001", 6)]

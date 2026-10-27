@@ -18,6 +18,7 @@ from .base import Analyzer, AnalysisUnit, FindingBuilder
 
 _IDENTIFIER = re.compile(r"[^\W\d]\w{1,80}", re.UNICODE)
 _MAX_IDENTIFIER_REPORTS = 20
+_ESCAPE_LETTERS = frozenset("abefnrtuvxUN")
 _MAX_CONTROL_REPORTS = 20
 # Budget.spend() chỉ soi đồng hồ mỗi 2048 lần gọi, tức là nó ngầm giả định mỗi
 # lần gọi đều rẻ. Ở các vòng lặp này mỗi lần lại kèm một lần dựng snippet, nên
@@ -126,6 +127,9 @@ class UnicodeAnalyzer(Analyzer):
             budget.spend()
             for match in _IDENTIFIER.finditer(text):
                 token = match.group(0)
+                if match.start() > 0 and text[match.start() - 1] == "\\" and token[0] in _ESCAPE_LETTERS:
+                    # `"\nПривет"`: chữ `n` thuộc dãy thoát, không thuộc từ tiếng Nga.
+                    token = token[1:]
                 if token.isascii() or token in reported:
                     continue
                 scripts = {script_of(char) for char in token if char.isalpha()}

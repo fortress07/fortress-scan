@@ -69,6 +69,8 @@ class Category(str, Enum):
     WEBSHELL = "webshell"
     PERSISTENCE = "persistence"
     ACCESS_BACKDOOR = "access-backdoor"
+    # Lỗi an toàn bộ nhớ của mã native ( C, C++, Objective-C ).
+    MEMORY = "memory-safety"
 
 
 class StepKind(str, Enum):

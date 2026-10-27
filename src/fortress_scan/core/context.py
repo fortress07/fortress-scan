@@ -144,6 +144,9 @@ _GENERATED_SUFFIXES: Tuple[str, ...] = (
     "_pb",
     ".pb",
     ".g",
+    # Dart: `schema.drift.dart` của drift, `user.freezed.dart` của freezed.
+    ".drift",
+    ".freezed",
     ".generated",
     ".min",
     ".bundle",

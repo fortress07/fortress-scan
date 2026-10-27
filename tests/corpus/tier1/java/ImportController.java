@@ -14,8 +14,8 @@ public class ImportController {
 
     @PostMapping("/import")
     public Object importBlob(@RequestBody byte[] blob) throws Exception {
-        ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(blob));
-        return in.readObject(); // fsb-expect: FSB-DESER-001
+        ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(blob)); // fsb-expect: FSB-DESER-001
+        return in.readObject();
     }
 
     @PostMapping("/formula")
