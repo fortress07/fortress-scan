@@ -17,15 +17,15 @@
 <text x='44' y='214' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Ranh giới tệp</text>
 <text x='44' y='231' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>vượt qua được, có chỉ mục dự án</text>
 <line x1='44' y1='242' x2='418' y2='242' stroke='#2b3546' stroke-width='1' stroke-linecap='round' opacity='0.55'/>
-<text x='44' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Phủ được</text>
-<text x='44' y='273' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>27 / 73 rule</text>
+<text x='44' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Lớp và kế thừa</text>
+<text x='44' y='273' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>theo được, kể cả re-export</text>
 <line x1='44' y1='284' x2='418' y2='284' stroke='#2b3546' stroke-width='1' stroke-linecap='round' opacity='0.55'/>
 <text x='44' y='298' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Hàm bọc tự viết</text>
 <text x='44' y='315' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>tự học được, kể cả khác tệp</text>
 <rect x='452' y='72' width='414' height='268' rx='10' fill='#93a2ff' opacity='0.11'/>
 <rect x='452' y='72' width='414' height='268' rx='10' fill='none' stroke='#93a2ff' stroke-width='1.4' opacity='0.50'/>
 <rect x='452' y='72' width='4' height='268' rx='2' fill='#93a2ff' opacity='0.95'/>
-<text x='472' y='100' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14' fill='#93a2ff' text-anchor='start' font-weight='700'>19 ngôn ngữ còn lại</text>
+<text x='472' y='100' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='14' fill='#93a2ff' text-anchor='start' font-weight='700'>21 ngôn ngữ còn lại</text>
 <rect x='718' y='88' width='114' height='19' rx='9.5' fill='#93a2ff' opacity='0.16'/>
 <rect x='718' y='88' width='114' height='19' rx='9.5' fill='none' stroke='#93a2ff' stroke-width='1' opacity='0.45'/>
 <text x='775' y='101.7' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10' fill='#93a2ff' text-anchor='middle' font-weight='700'>Lexer theo token</text>
@@ -33,15 +33,15 @@
 <text x='472' y='147' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>tách token, lexer riêng từng ngôn ngữ</text>
 <line x1='472' y1='158' x2='846' y2='158' stroke='#2b3546' stroke-width='1' stroke-linecap='round' opacity='0.55'/>
 <text x='472' y='172' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Theo dữ liệu qua</text>
-<text x='472' y='189' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>trong phạm vi một hàm</text>
+<text x='472' y='189' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>phép gán và nhánh trong một hàm</text>
 <line x1='472' y1='200' x2='846' y2='200' stroke='#2b3546' stroke-width='1' stroke-linecap='round' opacity='0.55'/>
 <text x='472' y='214' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Ranh giới tệp</text>
-<text x='472' y='231' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>dừng lại ở đó</text>
+<text x='472' y='231' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>JS/TS, Java, Go vượt qua được</text>
 <line x1='472' y1='242' x2='846' y2='242' stroke='#2b3546' stroke-width='1' stroke-linecap='round' opacity='0.55'/>
 <text x='472' y='256' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Phủ được</text>
 <text x='472' y='273' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>dạng nguồn → biến → sink</text>
 <line x1='472' y1='284' x2='846' y2='284' stroke='#2b3546' stroke-width='1' stroke-linecap='round' opacity='0.55'/>
 <text x='472' y='298' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='9.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Hàm bọc tự viết</text>
-<text x='472' y='315' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>chỉ khi nằm cùng hàm</text>
+<text x='472' y='315' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='11.5' fill='#e9eef8' text-anchor='start' font-weight='400' opacity='0.92'>JS/TS, Java, Go tự học được</text>
 <text x='24' y='362' font-family='Segoe UI, system-ui, -apple-system, sans-serif' font-size='10.5' fill='#a3aec6' text-anchor='start' font-weight='400'>Không phải cứ nhiều ngôn ngữ là phủ đều: chỗ nào nông hơn thì báo cáo nói ra bằng độ tin cậy thấp hơn.</text>
 </svg>

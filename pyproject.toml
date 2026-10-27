@@ -3,9 +3,9 @@ requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fortress-scan-basic-injection"
+name = "fortress-scan"
 version = "0.1.0"
-description = "Công cụ phân tích tĩnh phát hiện sớm các lỗ hổng injection trong mã nguồn."
+description = "Phân tích tĩnh lần theo đường đi của dữ liệu để tìm lỗ hổng trong mã nguồn, báo cáo bằng tiếng Việt."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -47,8 +47,8 @@ fortress-scan = "fortress_scan.cli:main"
 fscan = "fortress_scan.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/fortress07/fortress-scan-basic-injection"
-Source = "https://github.com/fortress07/fortress-scan-basic-injection"
+Homepage = "https://github.com/fortress07/fortress-scan"
+Source = "https://github.com/fortress07/fortress-scan"
 Contact = "mailto:vophuvinh15012007@gmail.com"
 
 [tool.hatch.build.targets.wheel]

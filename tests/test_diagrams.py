@@ -77,9 +77,9 @@ def test_rule_counts_on_the_diagrams_come_from_the_registry(generated):
     from fortress_scan.core.registry import all_rules
 
     total = len(list(all_rules()))
-    rules_svg = generated["rules-light.svg"]
-    assert "%d rule" % total in rules_svg, (
-        "hình bộ rule không nhắc tới tổng %d rule; %s" % (total, REGENERATE)
+    owasp_svg = generated["owasp-2025-light.svg"]
+    assert "%d rule trải trên" % total in owasp_svg, (
+        "hình OWASP không nhắc tới tổng %d rule; %s" % (total, REGENERATE)
     )
 
 

@@ -5,8 +5,8 @@ Vì sao phải SINH ra chứ không vẽ tay: mọi con số trên hình đều 
 thầm nói sai. `tests/test_diagrams.py` chạy lại script này rồi so từng byte với
 tệp đã commit, nên hình không thể cũ hơn mã.
 
-Số đo hiệu năng thì không suy ra được từ mã, nên chúng nằm trong `MEASUREMENTS`
-kèm cả trung vị và số lần lặp. Đo lại thì sửa ở đúng một chỗ.
+Số đo không suy ra được từ mã ( bộ tệp lành của phần phân tích tệp thực thi )
+nằm trong `BINARY_CORPUS`. Đo lại thì sửa ở đúng một chỗ.
 
 HAI LUẬT VẼ, và cả hai đều có lý do:
 
@@ -24,11 +24,12 @@ from __future__ import annotations
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from fortress_scan.analysis.generic.profiles import SPECS as GENERIC_SPECS  # noqa: E402
 from fortress_scan.binary import catalogue as binary_catalogue  # noqa: E402
 from fortress_scan.binary import scoring as binary_scoring  # noqa: E402
 from fortress_scan.binary.model import Verdict  # noqa: E402
@@ -82,45 +83,6 @@ FILL_TINT = "0.11"
 STROKE_TINT = "0.50"
 BAR_TINT = "0.95"
 TRACK_TINT = "0.20"
-
-
-# --------------------------------------------------------------------------
-# Số đo. Máy đo: Windows 11, CPython 3.13. Mỗi phép lặp 7 lần, lấy trung vị,
-# chạy trên đúng hai commit trước và sau khi vá với cùng một bộ fixture.
-# --------------------------------------------------------------------------
-
-MEASUREMENTS = {
-    "ignore_realistic_us": {
-        "label": "So khớp .gitignore thật",
-        "unit": "micro-giây mỗi entry",
-        "before": 1299.30,
-        "after": 34.93,
-        "note": "bộ mẫu Python + Node của GitHub, 74 dòng",
-    },
-    "attack_scan_s": {
-        "label": "Quét cây dựng riêng để đốt CPU",
-        "unit": "giây",
-        "before": 26.14,
-        "after": 6.16,
-        "note": ".gitignore 15 KB hợp lệ, 60 tệp sâu 14 cấp",
-    },
-    "ignore_peak_mb": {
-        "label": "Đỉnh bộ nhớ, .gitignore 126 MB",
-        "unit": "MB",
-        "before": 378.24,
-        "after": 0.04,
-        "note": "tệp gồm TOÀN dòng chú thích, không sinh quy tắc nào",
-    },
-    "selfscan_s": {
-        "label": "Quét chính src/ ( đối chứng )",
-        "unit": "giây",
-        "before": 3.14,
-        "after": 3.38,
-        "note": "khoảng đo chồng nhau, tức là không đổi",
-    },
-}
-
-REPS = 7
 
 
 # --------------------------------------------------------------------------
@@ -416,161 +378,7 @@ def diagram_pipeline(theme: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# 3. Số đo trước và sau khi vá
-# --------------------------------------------------------------------------
-
-
-def _fmt(value: float) -> str:
-    if value >= 100:
-        return "%.0f" % value
-    if value >= 10:
-        return ("%.1f" % value).replace(".", ",")
-    return ("%.2f" % value).replace(".", ",")
-
-
-def diagram_benchmarks(theme: str) -> str:
-    cv = Canvas(452, theme)
-    c = cv.c
-    cv.title(
-        "Bốn phép đo trước và sau khi vá",
-        "Mỗi phép lặp %d lần, lấy trung vị. Máy đo: Windows 11, CPython 3.13." % REPS,
-    )
-
-    keys = ["ignore_realistic_us", "attack_scan_s", "ignore_peak_mb", "selfscan_s"]
-    row_h = 86
-    y0 = 76
-    bar_x, bar_max = 330, 300
-
-    for index, key in enumerate(keys):
-        item = MEASUREMENTS[key]
-        y = y0 + index * row_h
-        before, after = item["before"], item["after"]
-        improved = after < before * 0.9
-        accent = c["green"] if improved else c["muted"]
-
-        cv.panel(PAD, y, W - PAD * 2, row_h - 12, accent, bar=False)
-        cv.text(PAD + 18, y + 24, item["label"], size=12, weight="700")
-        cv.text(PAD + 18, y + 42, item["note"], size=10, fill=c["muted"])
-        cv.text(PAD + 18, y + 60, item["unit"], size=10, fill=c["muted"],
-                opacity="0.80")
-
-        # Thanh vẽ theo căn bậc hai để chênh lệch hàng nghìn lần vẫn nhìn được,
-        # còn con số thật thì luôn in nguyên bên cạnh.
-        span = max(before, after) or 1.0
-        w_before = max(5, (before / span) ** 0.5 * bar_max)
-        w_after = max(5, (after / span) ** 0.5 * bar_max)
-
-        cv.text(bar_x - 10, y + 30, "trước", size=9.5, fill=c["muted"], anchor="end")
-        cv.track(bar_x, y + 20, bar_max, 13, c["grid"])
-        cv.rect(bar_x, y + 20, w_before, 13, c["red"], rx=6.5, opacity="0.85")
-        cv.text(bar_x + bar_max + 12, y + 30, _fmt(before), size=11,
-                fill=c["red"], weight="700")
-
-        cv.text(bar_x - 10, y + 56, "sau", size=9.5, fill=c["muted"], anchor="end")
-        cv.track(bar_x, y + 46, bar_max, 13, c["grid"])
-        cv.rect(bar_x, y + 46, w_after, 13, accent, rx=6.5, opacity="0.85")
-        cv.text(bar_x + bar_max + 12, y + 56, _fmt(after), size=11,
-                fill=accent, weight="700")
-
-        if improved:
-            ratio = before / after if after else 0
-            label = "nhanh hơn %s lần" % _fmt(ratio)
-            if key == "ignore_peak_mb":
-                label = "không còn đọc tệp"
-            cv.chip(742, y + 28, label, c["green"])
-        else:
-            cv.chip(742, y + 28, "không đổi", c["muted"])
-
-    cv.footer("Khoảng đo của phép đối chứng chồng lên nhau, nên phần vá không làm "
-              "chậm đường chạy bình thường.")
-    return cv.render()
-
-
-# --------------------------------------------------------------------------
-# 4. Bộ rule: mức độ nghiêm trọng và họ lỗ hổng
-# --------------------------------------------------------------------------
-
-
-def _severity_counts() -> List[Tuple[str, int]]:
-    counts = Counter(rule.severity.label for rule in all_rules())
-    order = ["critical", "high", "medium", "low", "info"]
-    return [(name, counts[name]) for name in order if counts.get(name)]
-
-
-def _family_counts() -> List[Tuple[str, int]]:
-    counts = Counter(rule.category.value for rule in all_rules())
-    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-
-
-def diagram_rules(theme: str) -> str:
-    cv = Canvas(432, theme)
-    c = cv.c
-    total = len(list(all_rules()))
-    cv.title(
-        "%d rule, nhìn theo hai chiều" % total,
-        "Số lấy thẳng từ core.registry, nên hình không lệch khỏi mã được.",
-    )
-
-    sev_colors = {
-        "critical": c["red"], "high": c["orange"], "medium": c["yellow"],
-        "low": c["blue"], "info": c["muted"],
-    }
-
-    col_w = 414
-    left_x, right_x = PAD, PAD + col_w + 14
-    panel_y, panel_h = 76, 322
-
-    cv.panel(left_x, panel_y, col_w, panel_h, c["grid"], bar=False)
-    cv.text(left_x + 20, panel_y + 26, "Theo mức độ nghiêm trọng", size=12,
-            weight="700")
-    severities = _severity_counts()
-    top = max(count for _, count in severities)
-    bar_w = 250
-    for index, (name, count) in enumerate(severities):
-        y = panel_y + 52 + index * 66
-        color = sev_colors[name]
-        cv.text(left_x + 20, y + 14, name, size=12, fill=color, weight="700")
-        cv.text(left_x + 130, y + 14, "%d rule" % count, size=10.5, fill=c["muted"])
-        cv.track(left_x + 20, y + 24, bar_w, 12, c["grid"])
-        cv.rect(left_x + 20, y + 24, max(8, bar_w * count / top), 12, color,
-                rx=6, opacity="0.85")
-        cv.text(left_x + 20 + bar_w + 12, y + 34,
-                "%d%%" % round(100.0 * count / total), size=10, fill=c["muted"])
-
-    cv.panel(right_x, panel_y, col_w, panel_h, c["grid"], bar=False)
-    cv.text(right_x + 20, panel_y + 26, "Theo họ lỗ hổng", size=12, weight="700")
-    families = _family_counts()
-    shown = families[:8]
-    rest = sum(count for _, count in families[8:])
-    if rest:
-        shown = shown + [("còn lại (%d họ)" % len(families[8:]), rest)]
-    fam_top = max(count for _, count in shown)
-    # Không đưa màu lưới vào bảng màu: nó nhạt đúng bằng rãnh nền, nên hàng
-    # nào rơi vào nó thì cả thanh lẫn con số biến mất khỏi hình.
-    palette = [c["red"], c["orange"], c["yellow"], c["green"], c["blue"],
-               c["purple"], c["pink"], c["text"]]
-    fam_bar = 150
-    for index, (name, count) in enumerate(shown):
-        y = panel_y + 48 + index * 30
-        # Hàng gộp "còn lại" cố ý dùng màu chữ mờ: nó là phần dư, không phải
-        # một họ lỗ hổng để so ngang với các hàng trên.
-        is_rest = rest and index == len(shown) - 1
-        color = c["muted"] if is_rest else palette[index % len(palette)]
-        cv.text(right_x + 20, y + 12, name, size=10.5, fill=c["text"],
-                opacity="0.92")
-        cv.track(right_x + 200, y + 2, fam_bar, 12, c["grid"])
-        cv.rect(right_x + 200, y + 2, max(7, fam_bar * count / fam_top), 12,
-                color, rx=6, opacity="0.85")
-        cv.text(right_x + 200 + fam_bar + 12, y + 12, str(count), size=10.5,
-                fill=color, weight="700")
-
-    cv.footer("Mỗi rule đều có mẫu mã nguồn thật làm nó bắn, và với đa số là một mẫu "
-              "an toàn tương ứng để chắc nó không kêu bừa.")
-    return cv.render()
-
-
-# --------------------------------------------------------------------------
-# 5. Đối chiếu OWASP Top 10:2025
+# 3. Đối chiếu OWASP Top 10:2025
 # --------------------------------------------------------------------------
 
 
@@ -617,72 +425,7 @@ def diagram_owasp(theme: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# 6. Độ phủ theo ngôn ngữ
-# --------------------------------------------------------------------------
-
-LANGUAGE_COVERAGE: Sequence[Tuple[str, str, int, str]] = (
-    ("Python", "AST + luồng dữ liệu, xuyên file", 27, "full"),
-    ("C / C++ / Objective-C", "6 luật bộ nhớ + lệnh, SQL, path, dlopen", 5, "native"),
-    # Số họ rule của Java, Kotlin, Groovy, Scala, Go, C#, Swift, Dart, Elixir đếm từ
-    # tests/test_language_family_coverage.py: mỗi họ có một mẫu bắt được thật.
-    ("Java", "Servlet, Spring, Android", 14, "token"),
-    ("Kotlin", "Spring, Ktor, Android", 14, "token"),
-    ("Groovy / Jenkinsfile", "Grails, pipeline Jenkins", 14, "token"),
-    ("C#", "ASP.NET Core, ADO.NET", 12, "token"),
-    ("Swift", "Vapor, Hummingbird, iOS", 11, "token"),
-    ("Elixir", "Phoenix, LiveView, Ecto", 11, "token"),
-    ("JavaScript / TypeScript", "Express, Node", 9, "token"),
-    ("Scala", "Play, Akka HTTP, Slick", 9, "token"),
-    ("Go", "net/http, gin, echo", 8, "token"),
-    ("PHP", "$_GET / $_POST / $_COOKIE", 8, "token"),
-    ("Lua", "OpenResty ngx.*", 7, "token"),
-    ("Dart", "shelf, Dart Frog, Flutter", 7, "token"),
-    ("Rust", "actix, axum", 6, "token"),
-    ("PowerShell", "script build, script CI", 6, "token"),
-    ("Perl", "CGI $q->param", 5, "token"),
-    ("Workflow GitHub Actions", ".github/workflows/*.yml", 4, "token"),
-    ("Ruby", "Rails params", 4, "token"),
-    ("Shell", "bash, sh", 2, "token"),
-    ("package.json", "script vòng đời", 2, "token"),
-)
-
-
-def diagram_languages(theme: str) -> str:
-    cv = Canvas(126 + len(LANGUAGE_COVERAGE) * 30, theme)
-    c = cv.c
-    cv.title(
-        "Độ phủ trên %d ngôn ngữ và định dạng" % len(LANGUAGE_COVERAGE),
-        "Python có parser AST nên sâu hơn hẳn; phần còn lại phân tích theo token.",
-    )
-
-    cv.chip(PAD, 64, "AST + luồng dữ liệu, theo được taint xuyên file", c["green"])
-    cv.chip(PAD + 320, 64, "Lexer theo token, dừng ở ranh giới một hàm", c["blue"])
-    cv.chip(PAD + 606, 64, "Cây lệnh C, luồng giải phóng theo nhánh", c["orange"])
-
-    top = max(count for _, _, count, _ in LANGUAGE_COVERAGE)
-    bar_x, bar_w = 420, 300
-    for index, (name, detail, count, kind) in enumerate(LANGUAGE_COVERAGE):
-        y = 100 + index * 30
-        color = {"full": c["green"], "native": c["orange"]}.get(kind, c["blue"])
-        if index % 2 == 0:
-            cv.rect(PAD, y - 4, W - PAD * 2, 27, c["grid"], rx=7, opacity="0.16")
-        cv.circle(PAD + 14, y + 9, 4, color, opacity="0.90")
-        cv.text(PAD + 28, y + 13, name, size=11, weight="700")
-        cv.text(PAD + 210, y + 13, detail, size=10, fill=c["muted"])
-        cv.track(bar_x, y + 3, bar_w, 12, c["grid"])
-        cv.rect(bar_x, y + 3, max(7, bar_w * count / top), 12, color, rx=6,
-                opacity="0.85")
-        suffix = " / %d rule" % len(list(all_rules())) if kind == "full" else " họ rule"
-        cv.text(bar_x + bar_w + 12, y + 13, "%d%s" % (count, suffix), size=10.5,
-                fill=color, weight="700")
-
-    cv.footer("Con số của các ngôn ngữ quét theo token đếm theo HỌ rule bắt được, "
-              "không phải theo số rule đăng ký.")
-    return cv.render()
-
-
-# --------------------------------------------------------------------------
-# 7. Hai bộ phân tích đặt cạnh nhau
+# 4. Hai bộ phân tích đặt cạnh nhau
 # --------------------------------------------------------------------------
 
 
@@ -699,16 +442,15 @@ def diagram_analyzers(theme: str) -> str:
             ("Cách đọc mã", "dựng cây cú pháp đầy đủ"),
             ("Theo dữ liệu qua", "if, vòng lặp, try, và hàm khác"),
             ("Ranh giới tệp", "vượt qua được, có chỉ mục dự án"),
-            ("Phủ được", "27 / %d rule" % len(list(all_rules()))),
+            ("Lớp và kế thừa", "theo được, kể cả re-export"),
             ("Hàm bọc tự viết", "tự học được, kể cả khác tệp"),
         ]),
-        ("%d ngôn ngữ còn lại" % sum(kind == "token" for *_, kind in LANGUAGE_COVERAGE),
-         c["blue"], "Lexer theo token", [
+        ("%d ngôn ngữ còn lại" % len(GENERIC_SPECS), c["blue"], "Lexer theo token", [
             ("Cách đọc mã", "tách token, lexer riêng từng ngôn ngữ"),
-            ("Theo dữ liệu qua", "trong phạm vi một hàm"),
-            ("Ranh giới tệp", "dừng lại ở đó"),
+            ("Theo dữ liệu qua", "phép gán và nhánh trong một hàm"),
+            ("Ranh giới tệp", "JS/TS, Java, Go vượt qua được"),
             ("Phủ được", "dạng nguồn → biến → sink"),
-            ("Hàm bọc tự viết", "chỉ khi nằm cùng hàm"),
+            ("Hàm bọc tự viết", "JS/TS, Java, Go tự học được"),
         ]),
     ]
 
@@ -733,8 +475,16 @@ def diagram_analyzers(theme: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# 8. Phân tích tệp thực thi: bộ dấu hiệu, thang kết luận, kết quả đo ( beta )
+# 5. Phân tích tệp thực thi: bộ dấu hiệu, thang kết luận, kết quả đo ( beta )
 # --------------------------------------------------------------------------
+
+
+def _fmt(value: float) -> str:
+    if value >= 100:
+        return "%.0f" % value
+    if value >= 10:
+        return ("%.1f" % value).replace(".", ",")
+    return ("%.2f" % value).replace(".", ",")
 
 
 def _pct(part: int, whole: int) -> str:
@@ -860,10 +610,7 @@ def diagram_binary_triage(theme: str) -> str:
 DIAGRAMS = {
     "taint-flow": diagram_taint_flow,
     "pipeline": diagram_pipeline,
-    "benchmarks": diagram_benchmarks,
-    "rules": diagram_rules,
     "owasp-2025": diagram_owasp,
-    "languages": diagram_languages,
     "analyzers": diagram_analyzers,
     "binary-triage": diagram_binary_triage,
 }

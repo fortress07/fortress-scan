@@ -106,7 +106,7 @@ def to_sarif(result: ScanResult, tool_version: str) -> str:
                         "name": "Fortress Scan",
                         "version": tool_version,
                         "informationUri": (
-                            "https://github.com/fortress07/fortress-scan-basic-injection"
+                            "https://github.com/fortress07/fortress-scan"
                         ),
                         "rules": rules,
                     }
