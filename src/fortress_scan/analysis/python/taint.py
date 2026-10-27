@@ -159,6 +159,10 @@ class Value:
     sanitized: bool = False
     callables: FrozenSet[CallableRef] = frozenset()
     entries: Tuple[Tuple[str, FrozenSet[CallableRef]], ...] = ()
+    # Lớp mà giá trị này là thể hiện ( tên đầy đủ, ví dụ
+    # "app.services.items.ItemService" ), để `x.find(q)` tìm đúng phương thức
+    # của lớp đó ở tệp khác. Rỗng khi không biết.
+    instance: str = ""
 
     @property
     def text(self) -> str:
@@ -221,6 +225,7 @@ def merge_values(left: Value, right: Value) -> Value:
         sanitized=left.sanitized or right.sanitized,
         callables=callables,
         entries=entries,
+        instance=left.instance or right.instance,
     )
 
 
@@ -260,5 +265,7 @@ def environments_equal(left: Environment, right: Environment) -> bool:
         if value.constant != other.constant:
             return False
         if value.callables != other.callables:
+            return False
+        if value.instance != other.instance:
             return False
     return True

@@ -1,0 +1,4 @@
+[project]
+name = "flask-billing"
+version = "0.0.0"
+dependencies = ["flask", "celery", "psycopg2-binary"]

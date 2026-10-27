@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost/orders
+  kafka:
+    consumer:
+      group-id: orders
+orders:
+  search-query: "SELECT id, code, total FROM orders WHERE "
+  export-command: "order-export --format csv"
+  archive-root: "/srv/orders/archive"
